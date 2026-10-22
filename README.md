@@ -9,6 +9,7 @@ Plan an open-source console application for a Windows laptop, with container tes
 - [Proposed repository structure](docs/repository-structure.md)
 - [Development pipeline and pause/resume](docs/development-pipeline.md)
 - [Testing plan](docs/testing-plan.md) and [planned GitHub automation](docs/github-test-automation.md)
+- [Local HEIC sample evaluation and future fixture use](docs/sample-evaluation.md)
 - [Review guidance](docs/review-guidance.md), [contributing](CONTRIBUTING.md), [shared agent rules](AGENTS.md), [role contracts](agents/lead.md)
 
-The repository contains an existing Apache-2.0 [LICENSE](LICENSE), preserved unchanged; the user has not yet confirmed the project license choice. Real sample HEIC photos of both layouts are needed before OCR feasibility or readings can be validated. Do not commit personal photos without permission.
+The repository contains an existing Apache-2.0 [LICENSE](LICENSE), preserved unchanged; the user has not yet confirmed the project license choice. The user supplied 16 local HEIC samples under ignored `sample-pictures/` for evaluation and later testing. Decode/metadata and visual inspection are recorded; OCR accuracy remains untested. Original photos and derived previews stay local unless publication is separately authorized.

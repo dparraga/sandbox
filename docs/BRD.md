@@ -29,17 +29,17 @@ Acceptance will use user-provided, permissioned samples and approved policies. N
 
 Language/runtime, OCR engine, project license and exact JSON schema remain proposals. Existing Apache-2.0 LICENSE is unchanged, not newly selected; the user requested evaluation of alternatives. No cloud processing, paid/proprietary processing dependencies, GUI or extra business features are requested. Installation/model provisioning must be distinguished from offline execution.
 
-User decisions on 2026-10-21: destination filename collisions add a sequential `-##` suffix; dashboard trip duration output is minutes. Exact suffix formatting/start/placement and duration input parsing/precision remain proposals in TRD. The user has no preference for missing timestamps; that does not approve a handling policy.
+User decisions on 2026-10-21: destination filename collisions add a sequential `-##` suffix; dashboard trip duration output is minutes. On 2026-10-22 the user supplied local HEIC samples for evaluation/later testing and confirmed Trip Time is hours:minutes; convert it to total minutes. Exact suffix formatting/start/placement and any unsupported duration formats remain open. The user has no preference for missing timestamps; that does not approve a handling policy. See [sample evaluation](sample-evaluation.md) for evidence and limits.
 
 ## Open decisions
 
-- Supply original HEIC samples of both layouts, including blurry/omitted fields and capture metadata; decide permission for any tracked fixtures.
+- Original samples of both layouts are available locally. Complete human field/readability labels and obtain additional nonmatches/edge cases; publication of tracked fixtures is not authorized.
 - Confirm project license and proposed technical stack/schema after research/review.
 - Missing/invalid capture timestamps and absent timezone/offset: skip, stop or another explicitly approved policy? Never silently substitute file modification time or dashboard clock.
 - Timestamp ties and the exact grouping boundary (inclusive/exclusive) need approval; fixed first-to-last bound is mandatory regardless.
 - Details of the approved sequential collision suffix, nested/overlapping source/destination, repeat runs/duplicate trip handling, partial move/write failures and recovery behavior.
 - Trips crossing month boundaries: which month owns the single entry, and which timezone determines month?
-- Dashboard duration input notation and conversion/precision to approved minutes output; retain raw readings versus normalized values and units in schema.
+- Trip Time hours:minutes conversion to total minutes is approved. Other duration formats, if encountered, and raw readings versus normalized values/units in schema remain open.
 - What establishes “clearly readable,” handles conflicting readings and validates layout recognition? Requires samples; OCR confidence alone is not established evidence.
 - Expected workload/laptop resources for performance evaluation; no limits assumed.
 

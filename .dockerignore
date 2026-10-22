@@ -1,0 +1,13 @@
+# Build context allowlist: do not send photos, local state, Git or test outputs.
+**
+!src/
+!src/flex_photo/
+!src/flex_photo/__init__.py
+!src/flex_photo/__main__.py
+!src/flex_photo/cli.py
+!pyproject.toml
+!requirements-build.txt
+!LICENSE
+!README.md
+!container/
+!container/Dockerfile

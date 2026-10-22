@@ -10,11 +10,12 @@ Every feature requires independent Review before a PR is created. Review archite
 - Performance: review algorithm and resource use against measured workload/environment evidence. Do not invent thresholds or claim unrun measurements.
 - Maintainability and best practices: prefer the simplest approved design; review interfaces, error handling, dependencies, portability, and configuration without adding features.
 - Tests: check requirement coverage, meaningful assertions, approved expected readings, Windows/container execution, offline validation, failure cases, and actual local evidence before implementation PR creation. Confirm CI plans are clearly distinguished from operational checks.
-- Documentation: verify instructions against actual behavior; keep BRD/TRD, structure, setup, test guidance, and approval status consistent. Planning documents must label proposals and open questions.
+- Build and automation paths: verify workflow/container commands name the actual Dockerfile and checked-in helpers. Rebuild/reinstall the final package after README or package-metadata changes before validating artifact contents.
+- Documentation: scan copyable Windows commands for unexpected control characters and verify paths; verify instructions against actual behavior; keep BRD/TRD, structure, setup, test guidance, and approval status consistent. Planning documents must label proposals and open questions.
 - Licensing and cost: verify free, open-source dependency/model licenses, redistribution compatibility, and applicable runtime/hosting/storage costs. Existing repository licensing and future project-license decisions must be described accurately.
 - Process and hygiene: confirm feature branch, independent review and recheck, required approval gates, and exclusion of `.agent-state/` from staging and the PR. Feature completion requires a verified merge; never merge automatically.
 
-Apply each category proportionately and record exclusions with reasons. For this planning feature, check document consistency and proposed coverage; do not claim application tests ran.
+Apply each category proportionately and record exclusions with reasons. For bootstrap, check installed CLI/package correctness, startup measurement labeling and container/CI evidence. Photo-processing tests remain future work; do not claim application coverage.
 
 ## PR feedback and lessons
 

@@ -1,0 +1,77 @@
+name: Bootstrap checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Native ${{ matrix.os }} Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.13', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Create isolated environment and provision backend
+        shell: bash
+        run: |
+          python -m venv .venv
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "$GITHUB_WORKSPACE/.venv/Scripts" >> "$GITHUB_PATH"
+            .venv/Scripts/python -m pip install --require-hashes --only-binary=:all: -r requirements-build.txt
+          else
+            echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+            .venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements-build.txt
+          fi
+      - name: Record tooling and build installed wheel offline
+        run: |
+          python --version
+          python -m pip --version
+          python scripts/build_wheel.py
+      - name: Unit, integration, and warm-cache startup checks
+        run: python scripts/run_checks.py --wheel dist/flex_photo-0.1.0-py3-none-any.whl
+      - name: Downloadable bootstrap reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bootstrap-${{ matrix.os }}-python-${{ matrix.python }}
+          path: |
+            reports/unit.log
+            reports/integration.log
+            reports/bootstrap-startup.json
+          retention-days: 7
+          if-no-files-found: warn
+
+  container:
+    name: Linux container smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - name: Build bootstrap container
+        run: docker build --file container/Dockerfile --tag flex-photo:bootstrap .
+      - name: Restricted offline nonroot runtime checks
+        run: python scripts/check_container.py flex-photo:bootstrap

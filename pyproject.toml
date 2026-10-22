@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools==84.2.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flex-photo"
+version = "0.1.0"
+description = "Development environment bootstrap for an offline dashboard photo organizer"
+readme = "README.md"
+requires-python = ">=3.13,<3.15"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = []
+
+[project.scripts]
+flex-photo = "flex_photo.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["flex_photo*"]

@@ -1,15 +1,19 @@
-# Offline dashboard photo organizer — planning
+# Offline dashboard photo organizer
 
-Plan an open-source console application for a Windows laptop, with container testing. It will find HEIC photos matching Trip Summary or Drive Info dashboards, move matches, group them by capture metadata, and produce monthly trip JSON with the most recent clear value for each field.
+An open-source console application planned for a Windows laptop, with Linux container validation. Future processing will recognize HEIC Trip Summary and Drive Info photos, organize matching originals, and produce monthly trip JSON using the latest clear value for each field.
 
-**Status:** Planning foundation only. No application, runnable tests, container or automation exists. Technical choices are proposals. Application implementation requires explicit approval after architecture and independent review reports are presented. This feature completes only when its PR is merged by a human.
+**Current feature: Development environment bootstrap.** Planning PR #1 is merged. The user approved the reviewed architecture and this bootstrap scope: source/package structure, a minimal installed CLI, container configuration, tests, CI and instructions. Photo recognition, OCR, grouping, movement and monthly JSON are not implemented. The feature remains active until its PR is merged by a human.
 
-- [Business requirements and open questions](docs/BRD.md)
-- [Proposed technical design and sources](docs/TRD.md)
-- [Proposed repository structure](docs/repository-structure.md)
+Start with [Windows setup, CLI, container and test commands](docs/bootstrap.md). The CLI reports bootstrap readiness and supports `--help` and `--version`.
+
+- [Business requirements and open decisions](docs/BRD.md)
+- [Technical design and approval boundaries](docs/TRD.md)
+- [Repository structure](docs/repository-structure.md)
 - [Development pipeline and pause/resume](docs/development-pipeline.md)
-- [Testing plan](docs/testing-plan.md) and [planned GitHub automation](docs/github-test-automation.md)
+- [Testing plan](docs/testing-plan.md) and [GitHub automation](docs/github-test-automation.md)
 - [Local HEIC sample evaluation and future fixture use](docs/sample-evaluation.md)
 - [Review guidance](docs/review-guidance.md), [contributing](CONTRIBUTING.md), [shared agent rules](AGENTS.md), [role contracts](agents/lead.md)
 
-The repository contains an existing Apache-2.0 [LICENSE](LICENSE), preserved unchanged; the user has not yet confirmed the project license choice. The user supplied 16 local HEIC samples under ignored `sample-pictures/` for evaluation and later testing. Decode/metadata and visual inspection are recorded; OCR accuracy remains untested. Original photos and derived previews stay local unless publication is separately authorized.
+Trip duration will be stored as `hh:mm`; capture metadata retains its full date/time/offset. No duration handling is implemented here. The existing Apache-2.0 [LICENSE](LICENSE) remains unchanged pending the user's license decision. Imaging/OCR artifact and model licensing remain future gates.
+
+The 16 user-provided HEIC files and their durable inventory remain local in ignored `sample-pictures/`. Planning evaluated decode/metadata and visual layout; OCR accuracy remains untested. Original photos, metadata and derived previews require separate publication authorization.

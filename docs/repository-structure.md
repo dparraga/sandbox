@@ -1,25 +1,25 @@
-# Proposed repository structure
+# Repository structure
 
-Status: planning foundation. The directories below describe intended responsibilities; they do not select a language, runtime, test framework, OCR engine, exact schema, or container image. Create application assets only after explicit implementation approval.
+Planning PR #1 is merged. Development environment bootstrap creates the source, packaging, CLI, container and automation below; future processing responsibilities remain unimplemented. [TRD](TRD.md) records approval and unresolved decisions.
 
 | Location | Purpose / status |
 | --- | --- |
-| `README.md` | Purpose, planning status, and navigation. |
-| `AGENTS.md` | Shared agent and collaboration rules. |
-| `CLAUDE.md` | Entry point referring to shared rules; does not launch workers. |
-| `agents/` | Lead, Architect, Implementation, Testing, Documentation, and Review role definitions. |
-| `docs/` | BRD, TRD, pipeline, repository plan, testing, automation, and persistent review guidance. |
-| `.github/pull_request_template.md` | Reviewable scope, approvals, validation evidence, and open questions. |
-| `src/` | Future application source; internal organization follows the approved design. |
-| `tests/unit/` | Future grouping, field selection, and approved data-conversion/serialization tests. |
-| `tests/integration/` | Future scan-to-output, offline, move, and portability tests. |
-| `tests/performance/` | Future representative workload measurements and environment records. |
-| `tests/fixtures/` | Only approved, publishable fixture manifests/assets and verified expectations; personal originals remain outside public history. |
-| `scripts/` | Future repeatable development/test helpers if needed. |
-| `container/` | Future container build/validation assets after design approval. |
-| `.github/workflows/` | Future PR and manual Windows/container test automation. No workflows are created in this feature. |
-| `.agent-state/planning-foundation/` | Ignored, laptop-local phase status, reports, assignments, approval evidence, test records, and per-agent handoffs. Never included in PRs. |
+| `README.md`, `CONTRIBUTING.md` | Purpose, current scope, setup and contribution navigation. |
+| `AGENTS.md`, `CLAUDE.md`, `agents/` | Shared instructions and six role contracts; role files do not launch workers. |
+| `docs/` | BRD/TRD, bootstrap instructions, pipeline, testing, automation and persistent review guidance. |
+| `pyproject.toml`, `requirements-build.txt` | Python package/runtime configuration and hash-pinned build backend; no runtime dependencies. |
+| `src/flex_photo/` | Minimal standard-library CLI, version and module entry point. |
+| `tests/unit/` | Bootstrap CLI behavior assertions. |
+| `tests/integration/` | Installed wheel, module/console behavior and no output-file effects outside source root. |
+| `tests/performance/` | Bootstrap startup measurement contract; no photo workload. |
+| `scripts/` | Repeatable tests and installed-process startup benchmark. |
+| `container/Dockerfile`, `.dockerignore` | Multi-stage image, nonroot runtime and allowlisted build context. |
+| `.github/workflows/` | Windows/Linux Python tests, reports and Linux container smoke checks. |
+| `.github/pull_request_template.md` | Scope, approval, independent review and actual validation evidence. |
+| `sample-pictures/` | Ignored local originals and `fixture-manifest.json`; excluded from CI, package and container. |
+| `.agent-state/development-environment-bootstrap/` | Ignored laptop-local approval evidence, status, design/review reports, results and per-agent handoffs. |
+| `.venv/`, `build/`, `dist/`, `reports/` | Ignored local environment, package outputs and sanitized validation reports. |
 
-Names and locations of runtime-specific manifests, lockfiles, model assets/caches, and generated outputs remain subject to the approved technical design. Keep generated data, downloaded models, sensitive photos, and temporary outputs out of tracked history unless their inclusion is explicitly justified and approved.
+Future recognition/OCR, grouping/selection, move/JSON modules, models and publishable processing fixtures are deliberately absent. Native dependency artifacts and JSON schema require later validation/decisions. Keep generated data, downloaded assets and sensitive photos out of tracked history.
 
-Each agent writes its own handoff; Lead owns overall status. Retain local state while the PR is open. After verifying merge into the base branch, stop the feature's workers and delete only that feature's state. Resume on the same laptop by reading saved state and inspecting actual Git/filesystem state before acting; unsaved context is not recoverable by promise.
+Each agent writes its own handoff; Lead owns overall status. Retain active feature state while its PR is open. After verifying merge into base, stop feature workers and remove only its resolved workspace-contained state directory. Preserve local originals/inventory and permanent docs. Resume on the same laptop using saved state plus actual Git/PR verification.

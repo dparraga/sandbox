@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-Reduce manual organization and transcription of Amazon Flex vehicle dashboard photos through a local console application. All photos matching either supported layout are Amazon Flex photos; do not add a separate Flex classifier. This feature delivers planning and role definitions only.
+Reduce manual organization and transcription of Amazon Flex vehicle dashboard photos through a local console application. All photos matching either supported layout are Amazon Flex photos; do not add a separate Flex classifier. Planning foundation merged in PR #1. The current approved feature is Development environment bootstrap only: packaging, a minimal CLI, container and test automation, and instructions. Photo processing remains future work.
 
 ## Requirements and acceptance criteria
 
@@ -23,24 +23,24 @@ Reduce manual organization and transcription of Amazon Flex vehicle dashboard ph
 | R13 | Photo processing works entirely offline, including any AI OCR; no external processing API calls. |
 | R14 | Keep trip distance, trip duration, EV driving ratio, average MPG, odometer, remaining range and dashboard clock distinct. Capture date/time comes from photo metadata, not dashboard clock. Preserve any additional displayed fields discovered in samples. |
 
-Acceptance will use user-provided, permissioned samples and approved policies. No OCR accuracy, coverage or performance target has been set. No readings or results have been measured.
+Acceptance will use user-provided, permissioned samples and approved policies. No OCR accuracy, coverage or performance target has been set. Local decode/metadata and visual sample evaluation are documented separately; no application OCR or processing results have been measured.
 
 ## Constraints and exclusions
 
-Language/runtime, OCR engine, project license and exact JSON schema remain proposals. Existing Apache-2.0 LICENSE is unchanged, not newly selected; the user requested evaluation of alternatives. No cloud processing, paid/proprietary processing dependencies, GUI or extra business features are requested. Installation/model provisioning must be distinguished from offline execution.
+The reviewed Python console architecture is approved for the bootstrap scope. Exact OCR/native artifacts, project license and JSON schema remain unresolved; bootstrap uses only the Python standard library at runtime. Existing Apache-2.0 LICENSE is unchanged, not newly selected; the user requested evaluation of alternatives. No cloud processing, paid/proprietary processing dependencies, GUI or extra business features are requested. Installation/model provisioning must be distinguished from offline execution.
 
-User decisions on 2026-10-21: destination filename collisions add a sequential `-##` suffix; dashboard trip duration output is minutes. On 2026-10-22 the user supplied local HEIC samples for evaluation/later testing and confirmed Trip Time is hours:minutes; convert it to total minutes. Exact suffix formatting/start/placement and any unsupported duration formats remain open. The user has no preference for missing timestamps; that does not approve a handling policy. See [sample evaluation](sample-evaluation.md) for evidence and limits.
+User decisions: destination filename collisions add a sequential `-##` suffix. On 2026-10-22 the user confirmed Trip Time is hours:minutes, then approved storing trip duration as `hh:mm`, superseding the earlier numeric-minutes output decision. Capture timestamps retain their full metadata date, time and offset. Duration processing is outside bootstrap. Exact suffix formatting/start/placement and unsupported duration formats remain open. The user has no preference for missing timestamps; that does not approve a handling policy. Local HEIC samples are authorized for evaluation/later testing, not publication. See [sample evaluation](sample-evaluation.md).
 
 ## Open decisions
 
 - Original samples of both layouts are available locally. Complete human field/readability labels and obtain additional nonmatches/edge cases; publication of tracked fixtures is not authorized.
-- Confirm project license and proposed technical stack/schema after research/review.
+- Confirm project license, exact future native/OCR artifacts and proposed JSON schema before dependent work.
 - Missing/invalid capture timestamps and absent timezone/offset: skip, stop or another explicitly approved policy? Never silently substitute file modification time or dashboard clock.
 - Timestamp ties and the exact grouping boundary (inclusive/exclusive) need approval; fixed first-to-last bound is mandatory regardless.
 - Details of the approved sequential collision suffix, nested/overlapping source/destination, repeat runs/duplicate trip handling, partial move/write failures and recovery behavior.
 - Trips crossing month boundaries: which month owns the single entry, and which timezone determines month?
-- Trip Time hours:minutes conversion to total minutes is approved. Other duration formats, if encountered, and raw readings versus normalized values/units in schema remain open.
+- Trip Time storage as `hh:mm` is approved. Other duration formats, if encountered, and raw readings versus normalized values/units in schema remain open.
 - What establishes “clearly readable,” handles conflicting readings and validates layout recognition? Requires samples; OCR confidence alone is not established evidence.
 - Expected workload/laptop resources for performance evaluation; no limits assumed.
 
-Open policies may remain unresolved during documentation planning; obtain decisions before implementing dependent behavior. Application implementation needs separate explicit approval.
+Obtain decisions before implementing dependent behavior. User approval authorizes the bootstrap feature only; later processing features need their own approval.

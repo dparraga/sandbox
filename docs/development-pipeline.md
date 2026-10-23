@@ -11,9 +11,9 @@ Verified during planning: installed VS Code-bundled `codex-cli 0.162.0-alpha.17.
 ## Sequence and gates
 
 1. Inspect repository/status/remotes/base, preserve unrelated work, create feature branch; ignore local state before use. If no usable base exists, coordinate initialization.
-2. Architect researches/proposes; independent Review evaluates; Architect addresses findings. Lead presents both reports and open decisions. Wait for explicit implementation approval. This planning PR does not supply that approval.
-3. After approval, on the next authorized feature only after planning merge/cleanup: Implementation and Testing work in parallel. Documentation stays synchronized; runnable increments trigger tests promptly. Keep interfaces coordinated and file ownership explicit.
-4. Before every PR, including planning: independent review of all changes; resolve/recheck findings; applicable local tests/checks; inspect staged files; commit/push/create PR. GitHub checks run afterward once implemented.
+2. Architect researches/proposes; independent Review evaluates; Architect addresses findings. Lead presents both reports and open decisions. Wait for explicit implementation approval. Planning PR #1 is merged; the user has approved the reviewed architecture for Development environment bootstrap only. Later features need scoped approval.
+3. After approval and the previous feature's verified merge/cleanup: Implementation and Testing work in parallel. Documentation stays synchronized; runnable increments trigger tests promptly. Keep interfaces coordinated and file ownership explicit.
+4. Before every PR, including planning: independent review of all changes; resolve/recheck findings; applicable local tests/checks; inspect staged files; commit/push/create PR. Verify actual GitHub checks on the PR; distinguish workflow configuration from successful runs.
 5. Lead triages every PR comment to relevant owners, correct on same branch, rerun affected checks, obtain Review recheck before pushing corrections. Review records reusable lessons and evaluates each comment for misses.
 6. Human merges. Lead verifies actual merge into base, stops workers and cleans only the feature's local state. Only then begin another feature.
 
@@ -21,8 +21,8 @@ Verified during planning: installed VS Code-bundled `codex-cli 0.162.0-alpha.17.
 
 Temporary records live only under ignored `.agent-state/<feature>/`. Lead owns `status.md`; each worker owns its handoff and reports. Record phase, branch/base/head commits, assignments, completed/remaining work, questions, approval evidence, results and next actions after milestones. Do not concurrently edit the same file. Keep lasting decisions in BRD/TRD and reusable review lessons tracked.
 
-**Pause:** tell Lead “Pause Planning foundation.” Lead stops new assignments, brings workers to safe boundaries, gathers handoffs, records actual Git/PR state and outstanding actions, and reports the saved location. Preserve files; do not merge or delete active state.
+**Pause:** tell Lead “Pause Development environment bootstrap.” Lead stops new assignments, brings workers to safe boundaries, gathers handoffs, records actual Git/PR state and outstanding actions, and reports the saved location. Preserve files; do not merge or delete active state.
 
-**Resume:** open this same repository on this laptop with local state intact and tell Lead “Resume Planning foundation; read `.agent-state/planning-foundation/` and verify Git and PR state before acting.” Lead reads instructions/status/handoffs, runs `git status`, `git diff`, `git log`, verifies branch/remote/PR, checks approval evidence, recreates needed workers, and resumes the first uncompleted action. Inspect actual state after unexpected interruption/credit exhaustion; do not assume last commands completed. Unsaved context is not recoverable by promise.
+**Resume:** open this same repository on this laptop with local state intact and tell Lead “Resume Development environment bootstrap; read `.agent-state/development-environment-bootstrap/` and verify Git and PR state before acting.” Lead reads instructions/status/handoffs, runs `git status`, `git diff`, `git log`, verifies branch/remote/PR, checks approval evidence, recreates needed workers, and resumes the first uncompleted action. Inspect actual state after unexpected interruption/credit exhaustion; do not assume last commands completed. Unsaved context is not recoverable by promise.
 
 Retain local state while PR is open. After merge verification and worker stop, resolve the exact feature directory under the workspace before deleting only that directory. Preserve other features' state and all permanent files. Verify `.agent-state/` is absent from staged paths before every commit.

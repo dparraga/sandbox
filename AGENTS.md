@@ -3,7 +3,7 @@
 ## Scope and authority
 
 - Lead is the user's communication point. Keep scope simple; ask about ambiguity and do not add features.
-- Current feature: **Planning foundation**, branch `feature/planning-foundation`, base `main`. Only planning documents and verified agent configuration are authorized. No application code, executable tests, Dockerfiles, or Actions workflows in this feature.
+- Current feature: **Development environment bootstrap**, branch `feature/development-environment-bootstrap`, base `main`. Planning PR #1 is merged. User approved the reviewed architecture and bootstrap only: source/test structure, runtime/dependency configuration, minimal CLI, container build/run, unit/integration/performance automation, GitHub Actions and instructions. Do not implement recognition, OCR extraction, grouping, photo movement or monthly JSON in this feature. Approval evidence is retained in ignored feature state; changes to the material approved solution need user approval.
 - Requirements live in [BRD](docs/BRD.md); proposals and decision status live in [TRD](docs/TRD.md). Proposals are not approvals. Existing LICENSE is preserved pending the user's license decision.
 - Work on one feature at a time, always on a feature branch. Inspect status, remotes, base and existing changes first. Never bypass an absent usable base; coordinate initialization with the user.
 - Preserve unrelated files and changes. Do not fabricate photos, readings, results, approvals, or operational capabilities.

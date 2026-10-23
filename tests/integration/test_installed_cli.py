@@ -42,7 +42,7 @@ class InstalledCliTests(unittest.TestCase):
         console = scripts / ("flex-photo.exe" if os.name == "nt" else "flex-photo")
         self.assertTrue(console.is_file(), str(console))
         commands = [[sys.executable, "-m", "flex_photo"], [str(console)]]
-        with tempfile.TemporaryDirectory(prefix="flex bootstrap Ã© ") as directory:
+        with tempfile.TemporaryDirectory(prefix="flex bootstrap é ") as directory:
             environment = os.environ.copy()
             environment.pop("PYTHONPATH", None)
             environment["PYTHONNOUSERSITE"] = "1"

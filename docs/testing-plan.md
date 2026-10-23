@@ -17,7 +17,7 @@ Unit tests exercise readiness/help/version and argument errors. Integration test
 | R03 | Use user-supplied, labeled samples of both Trip Summary and Drive Info, plus labeled nonmatching photos. Verify recognition against approved labels without inventing OCR readings. |
 | R04 | Integration-test moving recognized photos to the selected destination and keeping nonmatches in place. Collision, existing destination, partial failure, interruption, retry, cross-volume movement, and recovery expectations require decisions before destructive cases run. Use disposable copies only. |
 | R05, R14 | Compare extraction to human-verified fixture readings and capture metadata. Keep distance, duration, EV driving ratio, average MPG, odometer, remaining range, dashboard clock, and capture time separate. Cover all available displayed fields. |
-| R06, R07 | Test grouping by capture time and configured windows, including the default three minutes. Photos at 00:00, 00:02, and 00:04 must not form one three-minute trip through consecutive-photo chaining. Confirm boundary inclusivity and tie handling before exact partition expectations. |
+| R06, R07 | Test grouping by capture time and configured windows using the confirmed inclusive first-to-last bound in [BRD R07](BRD.md). Photos at 00:00, 00:02, and 00:04 must not form one three-minute trip through consecutive-photo chaining. Confirm tie handling before exact partition expectations. |
 | R08 | Verify one JSON file per applicable month and exactly one entry per trip using the approved schema. Cross-month trips and repeated-run output behavior remain unresolved. |
 | R09 | Test each field independently with clear values at different capture times: the latest clearly readable value for each field wins. Do not select one entire photo as the source for all fields. |
 | R10 | For each field, a newer absent or unclear value retains the earlier clear value. Include photos where some fields improve while others become unclear. |
@@ -35,6 +35,6 @@ Use the [sample handling rules and coverage limits](sample-evaluation.md) for or
 
 ## Decisions needed before affected tests
 
-The [BRD open decisions](BRD.md#open-decisions) are authoritative. Do not encode unapproved timestamp, grouping-boundary, suffix, cross-month, recovery, repeated-run, readability or schema policies as expected results. Trip duration expectations must preserve approved `hh:mm` storage.
+The [BRD open decisions](BRD.md#open-decisions) are authoritative. Do not encode unapproved timestamp, suffix, cross-month, recovery, repeated-run, readability or schema policies as expected results. Trip duration expectations must preserve approved `hh:mm` storage.
 
 Before an implementation PR, run applicable local tests and independently review fixes. On PR updates, rerun affected tests and review corrections before pushing. Preserve commands, environment, results, failures, and remaining gaps in the feature's ignored local state; publish only suitable sanitized evidence.

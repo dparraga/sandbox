@@ -5,6 +5,7 @@ Every feature requires independent Review before a PR is created. Review archite
 ## Persistent checklist
 
 - Scope and correctness: match approved requirements and decisions; preserve unrelated changes; expose unresolved behavior instead of inventing it. Check first-to-last trip limits, one entry per trip, per-field latest-clear selection, earlier-value retention, and JSON null behavior where relevant.
+- Decision consistency: compare open questions with confirmed user decisions and approved contracts. Preserve settled choices; ask only about details that remain unresolved.
 - Data fidelity: separate every displayed field, dashboard clock, and metadata capture time. Verify conversions, time zones, boundaries, cross-month handling, and filename/move behavior only against approved decisions and fixtures.
 - Safety and security: inspect filesystem handling, move failure/recovery risks, logging, secrets, fixture privacy, dependency/model provenance, and offline processing. Confirm no external API is required during processing.
 - Performance: review algorithm and resource use against measured workload/environment evidence. Do not invent thresholds or claim unrun measurements.
@@ -12,6 +13,7 @@ Every feature requires independent Review before a PR is created. Review archite
 - Tests: check requirement coverage, meaningful assertions, approved expected readings, Windows/container execution, offline validation, failure cases, and actual local evidence before implementation PR creation. Confirm CI plans are clearly distinguished from operational checks.
 - Build and automation paths: verify workflow/container commands name the actual Dockerfile and checked-in helpers. Rebuild/reinstall the final package after README or package-metadata changes before validating artifact contents.
 - Documentation: load [project-documentation](../.agents/skills/project-documentation/SKILL.md); check purpose separation, authoritative references, current-state accuracy, concision and agreement with code/evidence. Scan copyable Windows commands for unexpected control characters and verify paths; verify instructions against actual behavior; keep BRD/TRD, structure, setup, test guidance, and approval status consistent. Planning documents must label proposals and open questions.
+- Text encoding: inspect changed text for mojibake, replacement characters and unexpected control characters. Verify intended Unicode characters in examples, fixtures and packaged metadata; rerun affected checks after correction.
 - Licensing and cost: verify free, open-source dependency/model licenses, redistribution compatibility, and applicable runtime/hosting/storage costs. Existing repository licensing and future project-license decisions must be described accurately.
 - Process and hygiene: confirm feature branch, independent review and recheck, required approval gates, and exclusion of `.agent-state/` from staging and the PR. Feature completion requires a verified merge; never merge automatically.
 

@@ -16,7 +16,7 @@ Candidate discovery is implemented. Photo-content processing remains future work
 | R04 | Moves matches to the user's destination; unrelated photos remain untouched. Move/error policies require decisions below. |
 | R05 | Extracts all available displayed fields and photo capture timestamps. |
 | R06 | Groups matches into trips using capture metadata timestamps. |
-| R07 | Configurable first-to-last trip window defaults to three minutes. A group never grows through consecutive-photo chaining beyond that window. |
+| R07 | Configurable first-to-last trip window defaults to three minutes. Include the boundary: elapsed time from first to last capture must be less than or equal to the configured window. A group never grows through consecutive-photo chaining beyond that window. |
 | R08 | Produces one JSON file per month and exactly one entry per trip; month assignment policy is pending. |
 | R09 | Selects the most recent clearly readable value independently per field. |
 | R10 | Retains earlier clear values when later photos omit or obscure those fields. |
@@ -38,7 +38,7 @@ Destination filename collisions add a sequential `-##` suffix. Trip Time means h
 - Original samples of both layouts are available locally. Complete human field/readability labels and obtain additional nonmatches/edge cases; publication of tracked fixtures is not authorized.
 - Confirm project license, exact future native/OCR artifacts and proposed JSON schema before dependent work.
 - Missing/invalid capture timestamps and absent timezone/offset: skip, stop or another explicitly approved policy? Never silently substitute file modification time or dashboard clock.
-- Timestamp ties and the exact grouping boundary (inclusive/exclusive) need approval; fixed first-to-last bound is mandatory regardless.
+- Timestamp ties need an approved handling policy.
 - Details of the approved sequential collision suffix, nested/overlapping source/destination, repeat runs/duplicate trip handling, partial move/write failures and recovery behavior.
 - Trips crossing month boundaries: which month owns the single entry, and which timezone determines month?
 - Other duration formats, if encountered, and raw readings versus normalized values/units in the schema remain open.

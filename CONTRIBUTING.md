@@ -2,7 +2,7 @@
 
 Read [AGENTS.md](AGENTS.md), [BRD](docs/BRD.md), [TRD](docs/TRD.md) and the [pipeline](docs/development-pipeline.md). Keep one feature active. Inspect Git status/remotes/default branch and preserve unrelated changes. Create a feature branch from the updated usable base; coordinate initialization if none exists.
 
-Before creating or modifying documentation, read [project-documentation](.agents/skills/project-documentation/SKILL.md). Keep requirements, design and operational instructions distinct and current. After scoped approval, Implementation and Testing work in parallel while Documentation stays synchronized.
+Before project work, load [avoid-overengineering](.agents/skills/avoid-overengineering/SKILL.md) and [requested-scope-only](.agents/skills/requested-scope-only/SKILL.md). Before creating or modifying documentation, read [project-documentation](.agents/skills/project-documentation/SKILL.md). Keep requirements, design and operational instructions distinct and current. After scoped approval, Implementation and Testing work in parallel while Documentation stays synchronized.
 
 Use [setup instructions](docs/bootstrap.md) to create an isolated environment, build/install the wheel and execute unit, integration and separate startup/discovery measurements. Private HEIC samples are unnecessary for public tests and must stay outside public history.
 

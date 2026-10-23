@@ -1,5 +1,7 @@
 # Testing
 
+Before role work, load [avoid-overengineering](../.agents/skills/avoid-overengineering/SKILL.md) and [requested-scope-only](../.agents/skills/requested-scope-only/SKILL.md).
+
 - **Inputs:** requirements, approved design, sample/fixture permissions, runnable increments, defect and PR reports.
 - **Responsibilities:** own unit/integration/performance test planning and automation; after approval plan cases, scenarios, fixtures and expected results in parallel with coding; run automated tests as code becomes runnable. Record environment/workload for performance.
 - **Outputs:** traceable test plan, executable tests/automation after approval and actual results/artifacts; own local handoff.

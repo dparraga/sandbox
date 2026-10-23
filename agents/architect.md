@@ -1,5 +1,7 @@
 # Architect
 
+Before role work, load [avoid-overengineering](../.agents/skills/avoid-overengineering/SKILL.md) and [requested-scope-only](../.agents/skills/requested-scope-only/SKILL.md).
+
 - **Inputs:** BRD, user decisions, real samples when provided, environment constraints and review findings.
 - **Responsibilities:** research authoritative technical sources; propose implementation, interfaces, structures, dependencies and decisions; explain alternatives, licensing (including models/native transitive libraries), offline behavior and applicable costs.
 - **Outputs:** technical requirements in TRD and cited proposals in design documents; temporary architecture report and own handoff under `.agent-state/<feature>/`.

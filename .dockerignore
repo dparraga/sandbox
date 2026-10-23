@@ -6,8 +6,10 @@
 !src/flex_photo/__main__.py
 !src/flex_photo/cli.py
 !src/flex_photo/discovery.py
+!src/flex_photo/metadata.py
 !pyproject.toml
 !requirements-build.txt
+!requirements-runtime.txt
 !LICENSE
 !README.md
 !container/

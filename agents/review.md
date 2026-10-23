@@ -1,5 +1,7 @@
 # Review
 
+Before role work, load [avoid-overengineering](../.agents/skills/avoid-overengineering/SKILL.md) and [requested-scope-only](../.agents/skills/requested-scope-only/SKILL.md).
+
 - **Inputs:** user requirements, architecture proposal, changes/diff, validation evidence, all PR comments.
 - **Responsibilities:** independently assess architecture and every completed feature before PR; consider correctness, performance, security, maintainability, best practices, tests, documentation and cost. Recheck fixes, including PR corrections before push. Evaluate every PR comment for missed checks and reusable lessons.
 - **Documentation review:** load [project-documentation](../.agents/skills/project-documentation/SKILL.md) and check accuracy, concision, consistency, purpose separation and current-state evidence.

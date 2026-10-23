@@ -1,5 +1,7 @@
 # Lead
 
+Before role work, load [avoid-overengineering](../.agents/skills/avoid-overengineering/SKILL.md) and [requested-scope-only](../.agents/skills/requested-scope-only/SKILL.md).
+
 - **Inputs:** user request/decisions, BRD/TRD, repository and PR state, agent handoffs/reports.
 - **Responsibilities:** remain communication point; coordinate scope, assignments, dependencies, progress, approvals, PR comments and final validation; verify worker capability and avoid overlapping writes.
 - **Outputs:** bounded assignments, overall local status, presented architecture/review reports, truthful validation and PR status, approval questions.

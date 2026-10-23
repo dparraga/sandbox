@@ -2,7 +2,7 @@
 
 ## Implemented design
 
-The `flex_photo` package uses a standard-library Python CLI with no runtime dependencies. `cli.py` owns argument parsing, console JSON and sanitized diagnostics; `discovery.py` owns filesystem traversal. The [discovery contract](heic-discovery.md) is authoritative for its interfaces, selection rules, failure semantics and limitations. Recognition/OCR, trip grouping, photo movement and monthly JSON are not implemented.
+The `flex_photo` package uses a standard-library Python CLI. `cli.py` owns argument parsing, console JSON and sanitized diagnostics; `discovery.py` owns filesystem traversal. `metadata.py` reads original-capture fields through pinned ExifRead; its [contract](capture-metadata.md) defines the library interface, parser guards and acceptance gates. The [discovery contract](heic-discovery.md) is authoritative for its interfaces, selection rules, failure semantics and limitations. Recognition/OCR, trip grouping, photo movement and monthly JSON are not implemented.
 
 Packaging uses a `src/` layout and hash-pinned setuptools to build a wheel. A digest-pinned, multi-stage Linux container installs that wheel and runs as a nonroot user. SHA-pinned GitHub Actions run installed-package tests on Windows/Linux and restricted container smoke checks. See [setup](bootstrap.md), [test coverage](testing-plan.md), and [automation](github-test-automation.md).
 
@@ -14,9 +14,9 @@ Packaging uses a `src/` layout and hash-pinned setuptools to build a wheel. A di
 | `AGENTS.md`, `CLAUDE.md`, `agents/` | Shared instructions and six role contracts; role files do not launch workers. |
 | `.agents/skills/project-documentation/SKILL.md` | Repository-local documentation skill loaded before documentation edits and reviews. |
 | `docs/` | Business/technical requirements, design, setup instructions, pipeline, testing, automation and persistent review guidance. |
-| `pyproject.toml`, `requirements-build.txt` | Python package/runtime configuration and hash-pinned build backend; no runtime dependencies. |
-| `src/flex_photo/` | Standard-library candidate discovery, CLI, version and module entry point. |
-| `tests/unit/` | CLI behavior and discovery traversal/error assertions. |
+| `pyproject.toml`, `requirements-build.txt`, `requirements-runtime.txt` | Package configuration and hash-pinned build/runtime dependencies. |
+| `src/flex_photo/` | Candidate discovery, bounded capture-metadata reader, CLI, version and module entry point. |
+| `tests/unit/` | CLI behavior, discovery traversal/error assertions and capture-metadata/parser-guard checks. |
 | `tests/integration/` | Installed wheel, module/console behavior and no output-file effects outside source root. |
 | `tests/performance/` | Separate startup and synthetic discovery measurements; no photo workload. |
 | `scripts/` | Repeatable tests, installed-wheel build and restricted-container helpers. |
@@ -31,7 +31,9 @@ Future recognition/OCR, grouping/selection, move/JSON modules, models and publis
 
 ## Future processing design proposals
 
-The following design remains proposed. It is not authorization to implement later processing or select native/model artifacts. It separates pure grouping/selection from image operations and filesystem effects. Open business policies remain in [BRD](BRD.md).
+The implemented [capture metadata reader](capture-metadata.md) separates original-capture EXIF inspection from the later timestamp selection and image operations below.
+
+The following broader design remains proposed. It is not authorization to implement later processing or select native/model artifacts. Open business policies remain in [BRD](BRD.md).
 
 ## Stack proposal and alternatives
 

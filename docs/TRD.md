@@ -1,6 +1,6 @@
 # Technical requirements
 
-These requirements constrain the solution described by the [BRD](BRD.md). The [solution design](repository-structure.md) explains implementation choices; the [discovery contract](heic-discovery.md) defines the currently approved application feature. Later photo processing remains proposed and needs scoped approval before implementation.
+These requirements constrain the solution described by the [BRD](BRD.md). The [solution design](repository-structure.md) explains implementation choices. [Discovery](heic-discovery.md) is implemented; the [capture metadata reader](capture-metadata.md) is implemented; its contract defines the acceptance gates and limits. Later photo processing needs scoped approval before implementation.
 
 | ID | Technical requirement | Traceability |
 | --- | --- | --- |
@@ -14,4 +14,4 @@ These requirements constrain the solution described by the [BRD](BRD.md). The [s
 | T08 | Test installed wheel behavior, including console/module interfaces, rather than relying only on source-tree imports. Verify applicable Windows/Linux and network-disabled, read-only, nonroot container behavior. | R01, R13; [testing plan](testing-plan.md) |
 | T09 | Label performance evidence by workload, environment, repetitions and cache conditions. No speed, memory, OCR accuracy or coverage target is approved. | [testing plan](testing-plan.md) |
 
-The current CLI and discovery use only the Python standard library. Native decoder/OCR artifacts, model selection, schema and unresolved BRD policies must be validated or decided before dependent features. The existing Apache-2.0 license remains unchanged pending the user's license decision.
+The current CLI and discovery use only the Python standard library; the internal metadata reader uses the pinned dependency in its [contract](capture-metadata.md). Native decoder/OCR artifacts, model selection, schema and unresolved BRD policies must be validated or decided before dependent features. The existing Apache-2.0 license remains unchanged pending the user's license decision.

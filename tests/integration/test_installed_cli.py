@@ -1,4 +1,4 @@
-"""Exercise installed artifacts outside the checkout, without private photos."""
+﻿"""Exercise installed artifacts outside the checkout, without private photos."""
 
 import importlib.metadata
 import os
@@ -29,7 +29,7 @@ class InstalledCliTests(unittest.TestCase):
             self.assertTrue(any(name.endswith(".dist-info/licenses/LICENSE") for name in names))
             self.assertEqual(
                 {name for name in names if not name.split("/")[0].endswith(".dist-info")},
-                {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py"},
+                {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py", "flex_photo/discovery.py"},
             )
         installed = importlib.metadata.distribution("flex-photo")
         self.assertEqual(installed.version, __version__)
@@ -42,7 +42,7 @@ class InstalledCliTests(unittest.TestCase):
         console = scripts / ("flex-photo.exe" if os.name == "nt" else "flex-photo")
         self.assertTrue(console.is_file(), str(console))
         commands = [[sys.executable, "-m", "flex_photo"], [str(console)]]
-        with tempfile.TemporaryDirectory(prefix="flex bootstrap é ") as directory:
+        with tempfile.TemporaryDirectory(prefix="flex bootstrap Ã© ") as directory:
             environment = os.environ.copy()
             environment.pop("PYTHONPATH", None)
             environment["PYTHONNOUSERSITE"] = "1"

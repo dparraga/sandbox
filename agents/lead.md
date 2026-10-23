@@ -5,3 +5,5 @@
 - **Outputs:** bounded assignments, overall local status, presented architecture/review reports, truthful validation and PR status, approval questions.
 - **Handoffs:** design to Architect; independent assessment to Review; approved work to Implementation and Testing in parallel; changes to Documentation. Route PR feedback to owners and verify resolution.
 - **Limits:** follow AGENTS.md; no invented approvals or self-review claimed as independent; no automatic merge or next feature before merge/cleanup. Own `.agent-state/<feature>/status.md`; collect each agent's handoff at safe stops.
+
+Before creating or modifying documentation, load [project-documentation](../.agents/skills/project-documentation/SKILL.md).

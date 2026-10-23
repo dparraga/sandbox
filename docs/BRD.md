@@ -2,7 +2,9 @@
 
 ## Purpose and scope
 
-Reduce manual organization and transcription of Amazon Flex vehicle dashboard photos through a local console application. All photos matching either supported layout are Amazon Flex photos; do not add a separate Flex classifier. Planning foundation merged in PR #1. The current approved feature is Development environment bootstrap only: packaging, a minimal CLI, container and test automation, and instructions. Photo processing remains future work.
+Reduce manual organization and transcription of Amazon Flex vehicle dashboard photos through a local console application. The intended process selects a source, identifies supported dashboard photos, groups readings by trip, organizes matching originals, and emits monthly trip records. All photos matching either supported layout qualify as Flex photos; no separate Flex classifier is required.
+
+Candidate discovery is implemented. Photo-content processing remains future work. See the [discovery contract](heic-discovery.md) for its approved scope and limits and [technical requirements](TRD.md) for platform constraints.
 
 ## Requirements and acceptance criteria
 
@@ -27,9 +29,9 @@ Acceptance will use user-provided, permissioned samples and approved policies. N
 
 ## Constraints and exclusions
 
-The reviewed Python console architecture is approved for the bootstrap scope. Exact OCR/native artifacts, project license and JSON schema remain unresolved; bootstrap uses only the Python standard library at runtime. Existing Apache-2.0 LICENSE is unchanged, not newly selected; the user requested evaluation of alternatives. No cloud processing, paid/proprietary processing dependencies, GUI or extra business features are requested. Installation/model provisioning must be distinguished from offline execution.
+No cloud processing, paid/proprietary processing dependencies, GUI, or extra business features are requested. Installation/model provisioning is separate from offline execution. The existing Apache-2.0 license is retained pending the user's evaluation of alternatives; dependency/model licenses and the JSON schema need decisions before dependent work.
 
-User decisions: destination filename collisions add a sequential `-##` suffix. On 2026-10-22 the user confirmed Trip Time is hours:minutes, then approved storing trip duration as `hh:mm`, superseding the earlier numeric-minutes output decision. Capture timestamps retain their full metadata date, time and offset. Duration processing is outside bootstrap. Exact suffix formatting/start/placement and unsupported duration formats remain open. The user has no preference for missing timestamps; that does not approve a handling policy. Local HEIC samples are authorized for evaluation/later testing, not publication. See [sample evaluation](sample-evaluation.md).
+Destination filename collisions add a sequential `-##` suffix. Trip Time means hours:minutes and must be stored as `hh:mm`; capture timestamps retain their full metadata date, time, and offset. Exact suffix formatting/start/placement and unsupported duration formats remain open. The user has no preference for missing timestamps; a handling policy still needs approval. Local HEIC samples are authorized for evaluation and testing, not publication. See [sample evaluation](sample-evaluation.md).
 
 ## Open decisions
 
@@ -39,8 +41,8 @@ User decisions: destination filename collisions add a sequential `-##` suffix. O
 - Timestamp ties and the exact grouping boundary (inclusive/exclusive) need approval; fixed first-to-last bound is mandatory regardless.
 - Details of the approved sequential collision suffix, nested/overlapping source/destination, repeat runs/duplicate trip handling, partial move/write failures and recovery behavior.
 - Trips crossing month boundaries: which month owns the single entry, and which timezone determines month?
-- Trip Time storage as `hh:mm` is approved. Other duration formats, if encountered, and raw readings versus normalized values/units in schema remain open.
+- Other duration formats, if encountered, and raw readings versus normalized values/units in the schema remain open.
 - What establishes “clearly readable,” handles conflicting readings and validates layout recognition? Requires samples; OCR confidence alone is not established evidence.
 - Expected workload/laptop resources for performance evaluation; no limits assumed.
 
-Obtain decisions before implementing dependent behavior. User approval authorizes the bootstrap feature only; later processing features need their own approval.
+Obtain decisions before implementing dependent behavior. Discovery approval is limited to its feature contract; later processing needs its own scoped approval.

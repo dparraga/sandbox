@@ -1,15 +1,15 @@
-# GitHub bootstrap automation
+# GitHub test automation
 
-Workflow: **Bootstrap checks**, defined in `.github/workflows/bootstrap.yml`. This configures bootstrap validation only; workflow existence does not establish successful execution. The feature PR records actual run/check results. No application processing or private fixtures run in CI.
+Workflow **Bootstrap checks** in `.github/workflows/bootstrap.yml` validates installed CLI and discovery behavior. Private fixtures are excluded. Actual latest-head outcomes belong in the feature PR; workflow configuration alone does not prove a passing run.
 
 ## Jobs and evidence
 
-- **Native ubuntu-latest Python 3.13/3.14** and **Native windows-latest Python 3.13/3.14** create isolated environments, provision the hash-pinned build backend, build/install the wheel, run unit/integration checks and measure warm-cache installed-module startup. The four matrix jobs use the same `scripts/build_wheel.py` and `scripts/run_checks.py` documented in [bootstrap instructions](bootstrap.md).
-- **Linux container smoke** builds `container/Dockerfile` and runs `scripts/check_container.py` against default/help/version/invalid arguments. Runtime uses network disabled, read-only filesystem, dropped capabilities, no-new-privileges and nonroot user. This is offline bootstrap execution only; no Linux HEIC/OCR processing is established.
+- **Native ubuntu-latest Python 3.13/3.14** and **Native windows-latest Python 3.13/3.14** create isolated environments, provision the hash-pinned build backend, build/install the wheel, run unit/integration checks and measure warm-cache installed-module startup and synthetic discovery separately. The four matrix jobs use the same `scripts/build_wheel.py` and `scripts/run_checks.py` documented in [bootstrap instructions](bootstrap.md).
+- **Linux container smoke** builds `container/Dockerfile` and runs `scripts/check_container.py` against default/help/version/invalid arguments and a read-only mounted public synthetic discovery tree. Runtime uses network disabled, read-only filesystem, dropped capabilities, no-new-privileges and nonroot user. This exercises offline CLI/candidate discovery; no Linux HEIC decoding or OCR is established.
 
-Native jobs upload named reports `unit.log`, `integration.log` and `bootstrap-startup.json` as `bootstrap-<runner>-python-<version>` artifacts, retained seven days. Only these files are uploaded. Upload is attempted even on failure; a failure before report creation can produce a missing-file warning and no artifact. Container evidence remains in job logs. Logs/reports must not contain private photos/metadata, secrets or temporary feature state.
+Native jobs upload named reports `unit.log`, `integration.log`, `bootstrap-startup.json` and `discovery-performance.json` as `bootstrap-<runner>-python-<version>` artifacts, retained seven days. Only these files are uploaded. Upload is attempted even on failure; a failure before report creation can produce a missing-file warning and no artifact. Container evidence remains in job logs. Logs/reports must not contain private photos/metadata, secrets or temporary feature state.
 
-No processing-performance thresholds or coverage goals are approved. Startup reports include method, repetitions and environment; they do not measure representative photo workloads, cold startup or memory. Review actual runner/interpreter versions in logs when comparing results. GitHub hosted runner time and artifact storage remain subject to account allowances/costs.
+No processing-performance thresholds or coverage goals are approved. Startup and discovery reports include method, repetitions and environment; see [measurement instructions and limits](bootstrap.md#tests-and-measurements). They do not measure representative photo workloads, cold-cache performance or memory. Review actual runner/interpreter versions in logs when comparing results. GitHub hosted runner time and artifact storage remain subject to account allowances/costs.
 
 ## Run and inspect
 

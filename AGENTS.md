@@ -3,12 +3,14 @@
 ## Scope and authority
 
 - Lead is the user's communication point. Keep scope simple; ask about ambiguity and do not add features.
-- Current feature: **Development environment bootstrap**, branch `feature/development-environment-bootstrap`, base `main`. Planning PR #1 is merged. User approved the reviewed architecture and bootstrap only: source/test structure, runtime/dependency configuration, minimal CLI, container build/run, unit/integration/performance automation, GitHub Actions and instructions. Do not implement recognition, OCR extraction, grouping, photo movement or monthly JSON in this feature. Approval evidence is retained in ignored feature state; changes to the material approved solution need user approval.
-- Requirements live in [BRD](docs/BRD.md); proposals and decision status live in [TRD](docs/TRD.md). Proposals are not approvals. Existing LICENSE is preserved pending the user's license decision.
+- Read the active feature's ignored state and approved contract before work. Stay within its recorded approval; proposals are not approvals.
+- Business requirements live in [BRD](docs/BRD.md), technical requirements in [TRD](docs/TRD.md), and implementation design in the referenced design documents. Existing LICENSE is preserved pending the user's license decision.
 - Work on one feature at a time, always on a feature branch. Inspect status, remotes, base and existing changes first. Never bypass an absent usable base; coordinate initialization with the user.
 - Preserve unrelated files and changes. Do not fabricate photos, readings, results, approvals, or operational capabilities.
 
 ## Roles and delegation
+
+Before creating, modifying, or reviewing documentation, load [project-documentation](.agents/skills/project-documentation/SKILL.md). This repository-local skill is mandatory for all roles. Apply its checks to future documentation changes and independent reviews.
 
 Role contracts: [Lead](agents/lead.md), [Architect](agents/architect.md), [Implementation](agents/implementation.md), [Testing](agents/testing.md), [Documentation](agents/documentation.md), [Review](agents/review.md).
 Use separate background workers where supported; verify capability each environment/session. Role Markdown does not launch workers. Respect concurrency limits, use bounded assignments, and assign one writer per file. Roles may be activated sequentially; never represent self-review as independent review. If independent workers are unavailable, tell the user and arrange independent review before a PR.

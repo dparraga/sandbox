@@ -1,4 +1,4 @@
-"""Run installed-wheel checks, preserving sanitized diagnostic reports and exits."""
+﻿"""Run installed-wheel checks, preserving sanitized diagnostic reports and exits."""
 
 import argparse
 import os
@@ -37,10 +37,16 @@ def main() -> int:
         (reports / f"{suite}.log").write_text(log, encoding="utf-8")
         print(log, end="")
         failed |= status != 0
-    result = subprocess.run([sys.executable, str(root / "tests/performance/benchmark_startup.py"),
-                             str(reports / "bootstrap-startup.json")], cwd=root,
-                            env=environment, timeout=240, check=False)
-    failed |= result.returncode != 0
+    for script, report in [("benchmark_startup.py", "bootstrap-startup.json"),
+                           ("benchmark_discovery.py", "discovery-performance.json")]:
+        try:
+            result = subprocess.run([sys.executable, str(root / "tests/performance" / script),
+                                     str(reports / report)], cwd=root,
+                                    env=environment, timeout=420, check=False)
+            failed |= result.returncode != 0
+        except subprocess.TimeoutExpired:
+            print(f"{script} exceeded the 420 second timeout", file=sys.stderr)
+            failed = True
     return int(failed)
 
 

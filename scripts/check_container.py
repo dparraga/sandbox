@@ -1,6 +1,9 @@
-"""Verify bootstrap-only container behavior with restricted offline runtime."""
+"""Verify bootstrap and discovery with restricted offline container runtime."""
 
 import argparse
+import json
+from pathlib import Path
+import tempfile
 import subprocess
 
 
@@ -31,6 +34,23 @@ def main():
                 assert result.stdout.strip() == "flex-photo 0.1.0"
             else:
                 assert "--version" in result.stdout
+    # Public synthetic data only; permissions allow the image's nonroot UID.
+    with tempfile.TemporaryDirectory(prefix="flex-container-") as directory:
+        source = Path(directory)
+        source.chmod(0o755)
+        leaf = source / "day 1"
+        leaf.mkdir(mode=0o755)
+        for path in [source / "a.HEIC", leaf / "caf\u00e9.heic", source / "ignored.heif"]:
+            path.write_bytes(b"synthetic, not a photo")
+            path.chmod(0o644)
+        mounted = restricted + ["--mount", f"type=bind,source={source},target=/photos,readonly"]
+        result = run(mounted + [args.image, "discover", "/photos"])
+        assert not result.stderr
+        assert result.stdout == json.dumps(["a.HEIC", "day 1/caf\u00e9.heic"], ensure_ascii=True) + "\n"
+        failure = run(mounted + [args.image, "discover", "/photos/missing"], 1)
+        assert not failure.stdout and "invalid-source:" in failure.stderr
+        assert "/photos" not in failure.stderr and "Traceback" not in failure.stderr
+        assert sorted(path.relative_to(source).as_posix() for path in source.rglob("*")) == ["a.HEIC", "day 1", "day 1/caf\u00e9.heic", "ignored.heif"]
     # This also records the actual container interpreter and verifies numeric nonroot execution.
     run(restricted + ["--entrypoint", "python", args.image, "-c",
                       "import os,sys,importlib.util; assert os.getuid()!=0; "

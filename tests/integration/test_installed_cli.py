@@ -1,4 +1,4 @@
-"""Exercise installed artifacts outside the checkout, without private photos."""
+﻿"""Exercise installed artifacts outside the checkout, without private photos."""
 
 import importlib.metadata
 import os
@@ -29,7 +29,7 @@ class InstalledCliTests(unittest.TestCase):
             self.assertTrue(any(name.endswith(".dist-info/licenses/LICENSE") for name in names))
             self.assertEqual(
                 {name for name in names if not name.split("/")[0].endswith(".dist-info")},
-                {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py"},
+                {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py", "flex_photo/discovery.py"},
             )
         installed = importlib.metadata.distribution("flex-photo")
         self.assertEqual(installed.version, __version__)

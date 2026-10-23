@@ -1,4 +1,4 @@
-name: Bootstrap checks
+﻿name: Bootstrap checks
 
 on:
   pull_request:
@@ -46,7 +46,7 @@ jobs:
           python --version
           python -m pip --version
           python scripts/build_wheel.py
-      - name: Unit, integration, and warm-cache startup checks
+      - name: Unit, integration, and warm-cache startup/discovery checks
         run: python scripts/run_checks.py --wheel dist/flex_photo-0.1.0-py3-none-any.whl
       - name: Downloadable bootstrap reports
         if: always()
@@ -57,6 +57,7 @@ jobs:
             reports/unit.log
             reports/integration.log
             reports/bootstrap-startup.json
+            reports/discovery-performance.json
           retention-days: 7
           if-no-files-found: warn
 

@@ -4,25 +4,21 @@
 
 Use [shared instructions](../AGENTS.md) and six role contracts under `agents/`. Lead coordinates; Architect designs/researches; Implementation codes approved work; Testing owns tests/automation; Documentation maintains verified instructions; independent Review assesses proposals and changes.
 
-Verified during planning: installed VS Code-bundled `codex-cli 0.162.0-alpha.17.2`; GitHub CLI 2.92.0; this session's collaboration tools successfully launched separate workers. There are four concurrent slots including Lead, so six role definitions do not imply six simultaneous workers. Recheck capability when recreating sessions. Workers run during active orchestration; persistent unattended operation after closing the app is not established.
+Use background workers where supported and verify capability in each session. Respect concurrency limits and assign one writer per file. Role Markdown does not launch agents. Unattended operation after closing the app is not established.
 
-[Official subagent guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents) describes delegation in IDE chat. [AGENTS.md guidance](https://learn.chatgpt.com/docs/agent-configuration/agents-md) establishes the shared instruction entry point. The current session can assign role files directly to workers; no extra launcher/configuration is necessary. Role Markdown does not launch agents. No unverified `.codex` or Claude worker configuration is included. `CLAUDE.md` points to shared rules; Claude execution was not tested.
+Before documentation changes, load [project-documentation](../.agents/skills/project-documentation/SKILL.md). Codex discovers repository skills under `.agents/skills` from the working directory through the repository root, reads skill metadata for selection and loads the body when selected. AGENTS.md requires direct loading as a fallback. `CLAUDE.md` imports the same skill and shared instructions; live Claude execution and a skill-picker UI have not been tested. See official [Codex skills](https://learn.chatgpt.com/docs/build-skills) and [Claude imports](https://code.claude.com/docs/en/memory).
 
 ## Sequence and gates
 
 1. Inspect repository/status/remotes/base, preserve unrelated work, create feature branch; ignore local state before use. If no usable base exists, coordinate initialization.
-2. Architect researches/proposes; independent Review evaluates; Architect addresses findings. Lead presents both reports and open decisions. Wait for explicit implementation approval. Planning PR #1 is merged; the user has approved the reviewed architecture for Development environment bootstrap only. Later features need scoped approval.
+2. Architect researches/proposes; independent Review evaluates; Architect addresses findings. Lead presents both reports and open decisions. Wait for explicit implementation approval. Keep scoped approval evidence in ignored feature state.
 3. After approval and the previous feature's verified merge/cleanup: Implementation and Testing work in parallel. Documentation stays synchronized; runnable increments trigger tests promptly. Keep interfaces coordinated and file ownership explicit.
 4. Before every PR, including planning: independent review of all changes; resolve/recheck findings; applicable local tests/checks; inspect staged files; commit/push/create PR. Verify actual GitHub checks on the PR; distinguish workflow configuration from successful runs.
 5. Lead triages every PR comment to relevant owners, correct on same branch, rerun affected checks, obtain Review recheck before pushing corrections. Review records reusable lessons and evaluates each comment for misses.
 6. Human merges. Lead verifies actual merge into base, stops workers and cleans only the feature's local state. Only then begin another feature.
 
-## Safe pause/resume on this laptop
+## State and handoffs
 
-Temporary records live only under ignored `.agent-state/<feature>/`. Lead owns `status.md`; each worker owns its handoff and reports. Record phase, branch/base/head commits, assignments, completed/remaining work, questions, approval evidence, results and next actions after milestones. Do not concurrently edit the same file. Keep lasting decisions in BRD/TRD and reusable review lessons tracked.
+Keep temporary status, reports, approval evidence, results, handoffs and resume instructions only in ignored `.agent-state/<feature>/`. Lead owns overall status; each worker owns its handoff. Save after meaningful milestones and safe stopping points. Keep permanent requirements/design current and reusable lessons in [review guidance](review-guidance.md).
 
-**Pause:** tell Lead “Pause Development environment bootstrap.” Lead stops new assignments, brings workers to safe boundaries, gathers handoffs, records actual Git/PR state and outstanding actions, and reports the saved location. Preserve files; do not merge or delete active state.
-
-**Resume:** open this same repository on this laptop with local state intact and tell Lead “Resume Development environment bootstrap; read `.agent-state/development-environment-bootstrap/` and verify Git and PR state before acting.” Lead reads instructions/status/handoffs, runs `git status`, `git diff`, `git log`, verifies branch/remote/PR, checks approval evidence, recreates needed workers, and resumes the first uncompleted action. Inspect actual state after unexpected interruption/credit exhaustion; do not assume last commands completed. Unsaved context is not recoverable by promise.
-
-Retain local state while PR is open. After merge verification and worker stop, resolve the exact feature directory under the workspace before deleting only that directory. Preserve other features' state and all permanent files. Verify `.agent-state/` is absent from staged paths before every commit.
+On interruption, inspect saved state and actual Git/PR state before continuing; do not assume the last action completed. Approval remains scoped across pauses. Preserve active state until verified merge, then stop workers and remove only the resolved feature's workspace-contained state directory. Preserve unrelated files, samples and durable fixture inventory. Recovery requires this laptop and intact saved state; unsaved context is not guaranteed.

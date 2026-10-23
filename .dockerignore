@@ -5,6 +5,7 @@
 !src/flex_photo/__init__.py
 !src/flex_photo/__main__.py
 !src/flex_photo/cli.py
+!src/flex_photo/discovery.py
 !pyproject.toml
 !requirements-build.txt
 !LICENSE

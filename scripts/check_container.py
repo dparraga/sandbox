@@ -65,6 +65,7 @@ def main():
 from datetime import datetime, timedelta, timezone
 import importlib.metadata, pathlib
 from flex_photo.capture_time import CaptureTimeError, parse_capture_time
+from flex_photo.grouping import group_capture_times
 from flex_photo.metadata import CaptureMetadata, MetadataError, read_capture_metadata
 raw = read_capture_metadata(pathlib.Path('/photos/capture.heic'))
 assert raw == CaptureMetadata('2030:02:03 04:05:06', '+02:30', '123456')
@@ -72,6 +73,11 @@ parsed = parse_capture_time(raw)
 assert parsed == datetime(2030, 2, 3, 4, 5, 6, 123456, tzinfo=timezone(timedelta(minutes=150)))
 assert parsed.hour == 4 and parsed.utcoffset() == timedelta(minutes=150)
 assert raw.subsec_time_original == '123456'
+captures = [parsed + timedelta(minutes=4), parsed,
+            parsed + timedelta(minutes=3), parsed + timedelta(minutes=3, microseconds=1),
+            parsed.astimezone(timezone.utc)]
+assert group_capture_times(captures) == ((1, 4, 2), (3, 0))
+assert group_capture_times([parsed, parsed + timedelta(minutes=2), parsed + timedelta(minutes=4)]) == ((0, 1), (2,))
 try:
     parse_capture_time(CaptureMetadata(raw.date_time_original, None, None))
 except CaptureTimeError as error:
@@ -89,7 +95,7 @@ assert dependency.version == '3.5.1'
 licenses = [path for path in dependency.files if str(path).endswith('.dist-info/licenses/LICENSE')]
 assert len(licenses) == 1
 assert 'Redistribution and use in source and binary forms' in dependency.locate_file(licenses[0]).read_text()
-print('installed metadata extraction, capture-time conversion, guard and dependency license passed')
+print('installed metadata extraction, capture-time conversion, grouping, guard and dependency license passed')
 """])
         assert not metadata_result.stderr
         assert {path.name: path.read_bytes() for path in (capture, unsafe)} == before

@@ -9,6 +9,7 @@
 !src/flex_photo/metadata.py
 !src/flex_photo/capture_time.py
 !src/flex_photo/grouping.py
+!src/flex_photo/selection.py
 !pyproject.toml
 !requirements-build.txt
 !requirements-runtime.txt

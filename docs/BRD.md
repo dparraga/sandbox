@@ -45,4 +45,4 @@ Destination filename collisions add a sequential `-##` suffix. Trip Time means h
 - What establishes “clearly readable,” handles conflicting readings and validates layout recognition? Requires samples; OCR confidence alone is not established evidence.
 - Expected workload/laptop resources for performance evaluation; no limits assumed.
 
-Obtain decisions before implementing dependent behavior. Each component approval is limited to its feature contract; later processing needs its own scoped approval.
+Obtain decisions before implementing dependent behavior. The proposed [integrated delivery plan](delivery-plan.md) consolidates remaining work and decision recommendations; approval must explicitly cover its scope and policies. Existing component approvals remain limited to their contracts.

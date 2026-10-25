@@ -31,13 +31,13 @@ Acceptance will use user-provided, permissioned samples and approved policies. N
 
 No cloud processing, paid/proprietary processing dependencies, GUI, or extra business features are requested. Installation/model provisioning is separate from offline execution. The existing Apache-2.0 license is retained pending the user's evaluation of alternatives; dependency/model licenses and the JSON schema need decisions before dependent work.
 
-Destination filename collisions add a sequential `-##` suffix. Trip Time means hours:minutes and must be stored as `hh:mm`; capture timestamps retain their full metadata date, time, and offset. Exact suffix formatting/start/placement and unsupported duration formats remain open. The user has no preference for missing timestamps; a handling policy still needs approval. Local HEIC samples are authorized for evaluation and testing, not publication. See [sample evaluation](sample-evaluation.md).
+Destination filename collisions add a sequential `-##` suffix. Trip Time means hours:minutes and must be stored as `hh:mm`; capture timestamps retain their full metadata date, time, and offset. Exact suffix formatting/start/placement and unsupported duration formats remain open. The approved [capture-time contract](capture-time.md) validates original-capture timestamps without fallbacks. The user has no preference for missing timestamps; a future batch handling policy still needs approval. Local HEIC samples are authorized for evaluation and testing, not publication. See [sample evaluation](sample-evaluation.md).
 
 ## Open decisions
 
 - Original samples of both layouts are available locally. Complete human field/readability labels and obtain additional nonmatches/edge cases; publication of tracked fixtures is not authorized.
 - Confirm project license, exact future native/OCR artifacts and proposed JSON schema before dependent work.
-- Missing/invalid capture timestamps and absent timezone/offset: skip, stop or another explicitly approved policy? Never silently substitute file modification time or dashboard clock.
+- Batch handling of rejected or missing original-capture timestamps: skip, stop or another explicitly approved policy? The [converter](capture-time.md) requires an explicit offset and uses no fallback; never silently substitute file modification time or dashboard clock.
 - Timestamp ties need an approved handling policy.
 - Details of the approved sequential collision suffix, nested/overlapping source/destination, repeat runs/duplicate trip handling, partial move/write failures and recovery behavior.
 - Trips crossing month boundaries: which month owns the single entry, and which timezone determines month?
@@ -45,4 +45,4 @@ Destination filename collisions add a sequential `-##` suffix. Trip Time means h
 - What establishes “clearly readable,” handles conflicting readings and validates layout recognition? Requires samples; OCR confidence alone is not established evidence.
 - Expected workload/laptop resources for performance evaluation; no limits assumed.
 
-Obtain decisions before implementing dependent behavior. Discovery approval is limited to its feature contract; later processing needs its own scoped approval.
+Obtain decisions before implementing dependent behavior. Each component approval is limited to its feature contract; later processing needs its own scoped approval.

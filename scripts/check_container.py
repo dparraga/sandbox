@@ -62,9 +62,22 @@ def main():
         unsafe.chmod(0o644)
         before = {path.name: path.read_bytes() for path in (capture, unsafe)}
         metadata_result = run(mounted + ["--entrypoint", "python", args.image, "-c", """
+from datetime import datetime, timedelta, timezone
 import importlib.metadata, pathlib
+from flex_photo.capture_time import CaptureTimeError, parse_capture_time
 from flex_photo.metadata import CaptureMetadata, MetadataError, read_capture_metadata
-assert read_capture_metadata(pathlib.Path('/photos/capture.heic')) == CaptureMetadata('2030:02:03 04:05:06', '+02:30', '123456')
+raw = read_capture_metadata(pathlib.Path('/photos/capture.heic'))
+assert raw == CaptureMetadata('2030:02:03 04:05:06', '+02:30', '123456')
+parsed = parse_capture_time(raw)
+assert parsed == datetime(2030, 2, 3, 4, 5, 6, 123456, tzinfo=timezone(timedelta(minutes=150)))
+assert parsed.hour == 4 and parsed.utcoffset() == timedelta(minutes=150)
+assert raw.subsec_time_original == '123456'
+try:
+    parse_capture_time(CaptureMetadata(raw.date_time_original, None, None))
+except CaptureTimeError as error:
+    assert str(error) == 'offset_time_original: missing'
+else:
+    raise AssertionError('missing capture-time error')
 try:
     read_capture_metadata(pathlib.Path('/photos/unsafe.heic'))
 except MetadataError as error:
@@ -76,7 +89,7 @@ assert dependency.version == '3.5.1'
 licenses = [path for path in dependency.files if str(path).endswith('.dist-info/licenses/LICENSE')]
 assert len(licenses) == 1
 assert 'Redistribution and use in source and binary forms' in dependency.locate_file(licenses[0]).read_text()
-print('installed metadata extraction, guard and dependency license passed')
+print('installed metadata extraction, capture-time conversion, guard and dependency license passed')
 """])
         assert not metadata_result.stderr
         assert {path.name: path.read_bytes() for path in (capture, unsafe)} == before

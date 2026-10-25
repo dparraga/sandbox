@@ -1,6 +1,6 @@
 # Technical requirements
 
-These requirements constrain the solution described by the [BRD](BRD.md). The [solution design](repository-structure.md) explains implementation choices. [Discovery](heic-discovery.md) is implemented; the [capture metadata reader](capture-metadata.md) is implemented; its contract defines the acceptance gates and limits. Later photo processing needs scoped approval before implementation.
+These requirements constrain the solution described by the [BRD](BRD.md). The [solution design](repository-structure.md) explains implementation choices. [Discovery](heic-discovery.md) is implemented; the [capture metadata reader](capture-metadata.md) is implemented; its contract defines the acceptance gates and limits. The approved [capture-time contract](capture-time.md) defines internal timestamp conversion. Later photo processing needs scoped approval before implementation.
 
 | ID | Technical requirement | Traceability |
 | --- | --- | --- |
@@ -8,7 +8,7 @@ These requirements constrain the solution described by the [BRD](BRD.md). The [s
 | T02 | Discover candidates recursively under an explicitly selected source according to the approved feature contract. Candidate selection must not be presented as image decoding or layout recognition. | R02; [discovery](heic-discovery.md) |
 | T03 | Keep photo processing offline after documented provisioning. Load required binaries/models locally and report missing assets clearly; make no external processing API calls. | R13 |
 | T04 | Use free, open-source processing libraries/models. Audit exact direct, transitive, native and model artifacts, licenses and redistribution obligations before adopting or distributing them. | R12; [design/license gates](repository-structure.md#licensing-offline-execution-and-cost-gates) |
-| T05 | Separate capture metadata timestamps from dashboard clock values. Preserve metadata date, time and offset; do not silently substitute filenames, file modification times or dashboard clock. Timestamp precedence and missing-value policies remain open. | R05, R06, R14; BRD open decisions |
+| T05 | Separate capture metadata timestamps from dashboard clock values. Preserve metadata date, time and offset; do not silently substitute filenames, file modification times or dashboard clock. Use the approved original-only conversion contract; batch handling of missing/invalid timestamps remains open. | R05, R06, R14; BRD open decisions |
 | T06 | Keep grouping and per-field selection testable independently of decoding/OCR and filesystem side effects. Satisfy the fixed first-to-last window and independent latest-clear/null business rules. | R07, R09-R11 |
 | T07 | Support Windows paths with spaces/Unicode and Linux mounted paths. Keep private photos, metadata and derived previews out of packages, containers, CI artifacts and tracked history without publication authorization. | R01; [sample handling](sample-evaluation.md) |
 | T08 | Test installed wheel behavior, including console/module interfaces, rather than relying only on source-tree imports. Verify applicable Windows/Linux and network-disabled, read-only, nonroot container behavior. | R01, R13; [testing plan](testing-plan.md) |

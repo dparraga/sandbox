@@ -15,11 +15,12 @@ py -3.13 -m venv .venv
 .\.venv\Scripts\flex-photo.exe
 .\.venv\Scripts\flex-photo.exe --help
 .\.venv\Scripts\python.exe -m flex_photo --version
+.\.venv\Scripts\python.exe -m pip check
 ```
 
 The version output is `flex-photo 0.1.0`. The default command prints `Development environment bootstrap ready. Photo processing is unavailable.` Unknown arguments fail with exit code 2. The `discover SOURCE` subcommand inventories candidate paths; there are no destination or OCR options. Rebuild and reinstall the wheel after package changes; use `--force-reinstall` on the install command when testing an updated wheel with the same version. The test acceptance path is wheel installation, not imports from the source tree.
 
-Provisioning the hash-pinned setuptools backend and ExifRead runtime dependency needs package-index access. The application wheel build/install commands above use provisioned assets and `--no-index`; `--no-deps` requires installing `requirements-runtime.txt` first. `pip` comes with the selected environment. No imaging codecs or models are required.
+Provisioning the hash-pinned setuptools backend and ExifRead runtime dependency needs package-index access. The application wheel build/install commands above use provisioned assets and `--no-index`; `--no-deps` requires installing `requirements-runtime.txt` first. `pip` comes with the selected environment. No imaging codecs or models are required for the implemented CLI/libraries. One-time online provisioning is allowed; processing must then work offline. Exact future decoder/OCR downloads, hashes, license notices and model setup/verification commands remain gated by artifact validation in the [delivery plan](delivery-plan.md#dependency-compatibility-and-offline-gates); no OCR installation or offline-processing success is claimed.
 
 On Linux, create `.venv` using `python3 -m venv .venv`; replace `.\.venv\Scripts\python.exe` with `.venv/bin/python` and the console path with `.venv/bin/flex-photo`. The checked-in CI exercises Windows and Ubuntu on Python 3.13/3.14.
 

@@ -27,6 +27,6 @@ Verify reader-to-converter composition through installed-library tests outside t
 
 ## Policy boundaries
 
-Approval covers the required explicit offset, rejection of fractions longer than six digits, and strict original-only conversion/error contract. Missing/invalid timestamp handling in a future batch, equal-time field-value conflicts and month ownership remain unresolved in [BRD](BRD.md#open-decisions).
+Approval covers the required explicit offset, rejection of fractions longer than six digits, and strict original-only conversion/error contract. Future batch timestamp handling, identical-value collapse and differing local months at an equally latest capture remain open in [BRD](BRD.md#open-decisions). Conflicting equally latest clear readings must stop preflight and be reported; trips use the last photo's local month when unambiguous. These batch rules do not change this converter.
 
 Technical basis: official Python [3.13 datetime](https://docs.python.org/3.13/library/datetime.html) and [3.14 datetime](https://docs.python.org/3.14/library/datetime.html). Their representation limits support the approved strict grammar and rejection policies above.

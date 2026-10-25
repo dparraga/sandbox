@@ -25,7 +25,7 @@ A future value/serialization layer can use the sole candidate's value or emit JS
 
 ## Decisions and boundaries
 
-Approval covers this API, bool-mask interpretation, candidate-result semantics and validation behavior. Returning tied candidates does not resolve the existing business question of conflicting equal-time values. That winner policy remains open and blocks dependent value resolution, rather than blocking this ambiguity-preserving component.
+Approval covers this API, bool-mask interpretation, candidate-result semantics and validation behavior. Returning tied candidates preserves evidence for later value resolution. The confirmed business rule stops preflight and reports conflicting equally latest clear readings; identical-value collapse remains open. This component neither inspects values nor implements those batch policies.
 
 All available displayed dashboard fields remain required for later extraction and independent selection, including additional fields discovered in samples. Trip distance, `hh:mm` trip duration, EV driving ratio, average MPG, odometer, remaining range and dashboard clock stay distinct. Capture metadata supplies selection time; dashboard clock never substitutes for it. Readability criteria, OCR/layout recognition, value normalization, schema, timestamp batch handling, month assignment, CLI orchestration, moves and monthly output remain outside this feature.
 

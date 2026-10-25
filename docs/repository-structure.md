@@ -33,6 +33,6 @@ Future recognition/OCR and move/JSON modules, models and publishable processing 
 
 The [integrated delivery plan](delivery-plan.md) is the authoritative proposal for completing offline photo interpretation and the complete batch console workflow. It defines the remaining feature sequence, interfaces, dependency/model and native-license gates, policy recommendations and end-to-end acceptance. These remaining features require explicit approval; existing component contracts remain authoritative for their implemented APIs.
 
-## Project license evaluation
+## Project license
 
-The Apache-2.0 license remains unchanged. Alternatives under evaluation are Apache-2.0 (permissive, express contributor patent grant and continuity), MIT (short permissive terms without Apache's express patent clause), and GPL-3.0 (copyleft distribution obligations if desired). No replacement is selected. Confirm ownership/rights before a change; project licensing does not override dependency obligations or establish codec patent clearance. Sources: [Apache text](https://www.apache.org/licenses/LICENSE-2.0), [MIT text](https://choosealicense.com/licenses/mit/), [GPL-3.0 text](https://choosealicense.com/licenses/gpl-3.0/).
+The application's own code and documentation use the MIT [LICENSE](../LICENSE). Third-party dependencies, models and binaries retain their own licenses, attribution and notices. MIT does not waive their redistribution obligations or establish codec patent clearance; exact artifact compatibility remains a [delivery gate](delivery-plan.md#dependency-compatibility-and-offline-gates).

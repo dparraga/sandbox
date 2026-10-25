@@ -24,9 +24,15 @@ class InstalledCliTests(unittest.TestCase):
             metadata = BytesParser().parsebytes(archive.read(metadata_names[0]))
             self.assertEqual(metadata["Name"], "flex-photo")
             self.assertEqual(metadata["Version"], __version__)
+            self.assertEqual(metadata["License-Expression"], "MIT")
             self.assertEqual(metadata["Requires-Python"], "<3.15,>=3.13")
             self.assertEqual(metadata.get_all("Requires-Dist"), ["ExifRead==3.5.1"])
-            self.assertTrue(any(name.endswith(".dist-info/licenses/LICENSE") for name in names))
+            license_names = [name for name in names if name.endswith(".dist-info/licenses/LICENSE")]
+            self.assertEqual(len(license_names), 1)
+            app_license = archive.read(license_names[0]).decode("utf-8")
+            self.assertEqual(app_license.splitlines()[0], "MIT License")
+            self.assertIn("Copyright (c) 2024-2026 Daniel P\u00e1rraga", app_license)
+            self.assertIn("The above copyright notice and this permission notice", app_license)
             self.assertEqual(
                 {name for name in names if not name.split("/")[0].endswith(".dist-info")},
                 {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py", "flex_photo/discovery.py", "flex_photo/metadata.py", "flex_photo/capture_time.py", "flex_photo/grouping.py", "flex_photo/selection.py"},

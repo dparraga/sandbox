@@ -18,10 +18,10 @@ Unit tests exercise readiness/help/version and argument errors. Integration test
 | R04 | Integration-test moving recognized photos to the selected destination and keeping nonmatches in place. Collision, existing destination, partial failure, interruption, retry, cross-volume movement, and recovery expectations require decisions before destructive cases run. Use disposable copies only. |
 | R05, R14 | Compare extraction to human-verified fixture readings and capture metadata. Keep distance, duration, EV driving ratio, average MPG, odometer, remaining range, dashboard clock, and capture time separate. Cover all available displayed fields. |
 | R06, R07 | Use the authoritative [grouping contract](trip-grouping.md) for partition, ordering, boundary and validation scenarios. Stable equal-time order does not establish field-value winners. |
-| R08 | Verify one JSON file per applicable month and exactly one entry per trip using the approved schema. Cross-month trips and repeated-run output behavior remain unresolved. |
+| R08 | Verify one JSON file per applicable month and exactly one entry per trip using the approved schema. Use the last photo's local month, append new trips, skip exact repeats and report overlaps. Equally latest photos with differing local months and detailed matching/recovery remain unresolved. |
 | R09 | Test each field independently with clear values at different capture times: the latest clearly readable value for each field wins. Do not select one entire photo as the source for all fields. |
 | R10 | For each field, a newer absent or unclear value retains the earlier clear value. Include photos where some fields improve while others become unclear. |
-| R11 | A field with no clearly readable value across a trip is JSON `null`; distinguish null from zero and from omitted properties according to the eventual schema. |
+| R11 | Conflicting equally latest clear readings stop preflight and are reported. A field with no clearly readable value across a trip is JSON `null`; distinguish null from zero and from omitted properties according to the eventual schema. |
 | R12 | Review direct and transitive dependency/model licenses and any redistributed assets against the approved project license. Record authoritative license evidence; no paid service dependency is permitted. |
 | R13 | Exercise the complete processing path with network access disabled after documented provisioning. Verify recognition/OCR and metadata extraction make no external API calls; document model availability and loading. |
 

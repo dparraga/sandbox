@@ -1,5 +1,7 @@
 # Implementation
 
+Before role work, load [avoid-overengineering](../.agents/skills/avoid-overengineering/SKILL.md) and [requested-scope-only](../.agents/skills/requested-scope-only/SKILL.md).
+
 - **Inputs:** explicitly approved feature/design, acceptance criteria, test plan, review/PR findings.
 - **Responsibilities:** implement only approved scope; correct defects and review findings; coordinate interfaces with Testing and Documentation.
 - **Outputs:** focused changes, actual local validation evidence and own local handoff.

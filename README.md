@@ -1,6 +1,6 @@
 # Offline dashboard photo organizer
 
-A Windows console application with Linux container validation. It currently lists HEIC filename candidates in local folders. Recognition, OCR, trip grouping, photo movement and monthly trip JSON remain future work.
+A Windows console application with Linux container validation. Its CLI lists HEIC filename candidates in local folders; an internal library reads original-capture metadata. Recognition, OCR, trip grouping, photo movement and monthly trip JSON remain future work.
 
 Start with [setup, container and test commands](docs/bootstrap.md). Use `flex-photo discover SOURCE` for a console JSON inventory; see [discovery usage and limits](docs/heic-discovery.md#usage). With no arguments, the CLI reports bootstrap readiness. It also supports `--help` and `--version`.
 
@@ -11,4 +11,6 @@ Start with [setup, container and test commands](docs/bootstrap.md). Use `flex-ph
 - [Local sample evidence and handling](docs/sample-evaluation.md)
 - [Review guidance](docs/review-guidance.md) and [shared agent rules](AGENTS.md)
 
-The existing Apache-2.0 [LICENSE](LICENSE) is retained pending a project-license decision. Runtime dependencies are currently empty; future imaging/OCR artifacts and models need license validation. Private photos and their inventory stay in ignored `sample-pictures/`; publication requires separate authorization.
+The [capture metadata reader](docs/capture-metadata.md) implements an internal three-field EXIF interface, with no new CLI command. See its contract for acceptance gates and limits; actual validation results belong in the feature PR. This restriction applies only to capture metadata; all available dashboard fields remain required for later extraction.
+
+The existing Apache-2.0 [LICENSE](LICENSE) is retained pending a project-license decision. The reader uses pinned BSD-3-Clause ExifRead; future imaging/OCR artifacts and models need separate license validation. Private photos and their inventory stay in ignored `sample-pictures/`; publication requires separate authorization.

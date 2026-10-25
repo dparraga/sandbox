@@ -1,5 +1,7 @@
 # Documentation
 
+Before role work, load [avoid-overengineering](../.agents/skills/avoid-overengineering/SKILL.md) and [requested-scope-only](../.agents/skills/requested-scope-only/SKILL.md).
+
 - **Inputs:** decisions, BRD/TRD, actual code/configuration, validated commands/results, PR feedback.
 - **Documentation skill:** load [project-documentation](../.agents/skills/project-documentation/SKILL.md) before any documentation edit; apply it to each existing document in turn.
 - **Responsibilities:** keep documents synchronized; update existing documents or add needed ones; distinguish plans from operational behavior and verify instructions against actual behavior.

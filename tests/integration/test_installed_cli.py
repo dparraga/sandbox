@@ -25,15 +25,25 @@ class InstalledCliTests(unittest.TestCase):
             self.assertEqual(metadata["Name"], "flex-photo")
             self.assertEqual(metadata["Version"], __version__)
             self.assertEqual(metadata["Requires-Python"], "<3.15,>=3.13")
-            self.assertIsNone(metadata["Requires-Dist"])
+            self.assertEqual(metadata.get_all("Requires-Dist"), ["ExifRead==3.5.1"])
             self.assertTrue(any(name.endswith(".dist-info/licenses/LICENSE") for name in names))
             self.assertEqual(
                 {name for name in names if not name.split("/")[0].endswith(".dist-info")},
-                {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py", "flex_photo/discovery.py"},
+                {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py", "flex_photo/discovery.py", "flex_photo/metadata.py"},
             )
         installed = importlib.metadata.distribution("flex-photo")
         self.assertEqual(installed.version, __version__)
-        self.assertEqual(installed.requires or [], [])
+        self.assertEqual(installed.requires, ["ExifRead==3.5.1"])
+        backend = importlib.metadata.distribution("ExifRead")
+        self.assertEqual(backend.version, "3.5.1")
+        # The pinned wheel has development/test extras, not runtime dependencies.
+        self.assertTrue(all('; extra == "dev"' in item or '; extra == "test"' in item
+                            for item in backend.requires or []))
+        licenses = [path for path in backend.files if str(path).endswith(".dist-info/licenses/LICENSE")]
+        self.assertEqual(len(licenses), 1)
+        notice = backend.locate_file(licenses[0]).read_text(encoding="utf-8")
+        self.assertIn("Redistribution and use in source and binary forms", notice)
+        self.assertIn("THIS SOFTWARE IS PROVIDED", notice)
         entry = [entry for entry in installed.entry_points if entry.group == "console_scripts"]
         self.assertEqual([(item.name, item.value) for item in entry], [("flex-photo", "flex_photo.cli:main")])
 

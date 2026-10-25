@@ -10,6 +10,8 @@
 
 ## Roles and delegation
 
+Before planning, implementation, testing or review, load [avoid-overengineering](.agents/skills/avoid-overengineering/SKILL.md) and [requested-scope-only](.agents/skills/requested-scope-only/SKILL.md). Both skills are mandatory for all roles; apply them to proposals and changes.
+
 Before creating, modifying, or reviewing documentation, load [project-documentation](.agents/skills/project-documentation/SKILL.md). This repository-local skill is mandatory for all roles. Apply its checks to future documentation changes and independent reviews.
 
 Role contracts: [Lead](agents/lead.md), [Architect](agents/architect.md), [Implementation](agents/implementation.md), [Testing](agents/testing.md), [Documentation](agents/documentation.md), [Review](agents/review.md).

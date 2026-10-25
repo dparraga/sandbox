@@ -6,6 +6,8 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 WORKDIR /build
 COPY requirements-build.txt ./
 RUN python -m pip install --require-hashes --only-binary=:all: -r requirements-build.txt
+COPY requirements-runtime.txt ./
+RUN python -m pip download --require-hashes --only-binary=:all: --no-deps --dest /wheels -r requirements-runtime.txt
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ ./src/
 RUN python -m pip wheel --no-deps --no-build-isolation --no-index --wheel-dir /wheels .

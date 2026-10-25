@@ -1,10 +1,14 @@
-"""Verify bootstrap and discovery with restricted offline container runtime."""
+"""Verify installed behavior with restricted offline container runtime."""
 
 import argparse
 import json
 from pathlib import Path
 import tempfile
 import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
+from metadata_fixture import heif_metadata, huge_header_read
 
 
 def run(command, expected=0):
@@ -51,6 +55,31 @@ def main():
         assert not failure.stdout and "invalid-source:" in failure.stderr
         assert "/photos" not in failure.stderr and "Traceback" not in failure.stderr
         assert sorted(path.relative_to(source).as_posix() for path in source.rglob("*")) == ["a.HEIC", "day 1", "day 1/caf\u00e9.heic", "ignored.heif"]
+        capture, unsafe = source / "capture.heic", source / "unsafe.heic"
+        capture.write_bytes(heif_metadata())
+        unsafe.write_bytes(huge_header_read())
+        capture.chmod(0o644)
+        unsafe.chmod(0o644)
+        before = {path.name: path.read_bytes() for path in (capture, unsafe)}
+        metadata_result = run(mounted + ["--entrypoint", "python", args.image, "-c", """
+import importlib.metadata, pathlib
+from flex_photo.metadata import CaptureMetadata, MetadataError, read_capture_metadata
+assert read_capture_metadata(pathlib.Path('/photos/capture.heic')) == CaptureMetadata('2030:02:03 04:05:06', '+02:30', '123456')
+try:
+    read_capture_metadata(pathlib.Path('/photos/unsafe.heic'))
+except MetadataError as error:
+    assert str(error) == 'metadata limit exceeded'
+else:
+    raise AssertionError('missing limit error')
+dependency = importlib.metadata.distribution('ExifRead')
+assert dependency.version == '3.5.1'
+licenses = [path for path in dependency.files if str(path).endswith('.dist-info/licenses/LICENSE')]
+assert len(licenses) == 1
+assert 'Redistribution and use in source and binary forms' in dependency.locate_file(licenses[0]).read_text()
+print('installed metadata extraction, guard and dependency license passed')
+"""])
+        assert not metadata_result.stderr
+        assert {path.name: path.read_bytes() for path in (capture, unsafe)} == before
     # This also records the actual container interpreter and verifies numeric nonroot execution.
     run(restricted + ["--entrypoint", "python", args.image, "-c",
                       "import os,sys,importlib.util; assert os.getuid()!=0; "

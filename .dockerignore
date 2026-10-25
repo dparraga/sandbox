@@ -7,6 +7,7 @@
 !src/flex_photo/cli.py
 !src/flex_photo/discovery.py
 !src/flex_photo/metadata.py
+!src/flex_photo/capture_time.py
 !pyproject.toml
 !requirements-build.txt
 !requirements-runtime.txt

@@ -6,6 +6,8 @@ Every feature requires independent Review before a PR is created. Review archite
 
 - Scope and correctness: match approved requirements and decisions; preserve unrelated changes; expose unresolved behavior instead of inventing it. Check first-to-last trip limits, one entry per trip, per-field latest-clear selection, earlier-value retention, and JSON null behavior where relevant.
 - Decision consistency: compare open questions with confirmed user decisions and approved contracts. Preserve settled choices; ask only about details that remain unresolved.
+- Outcome classification: distinguish normal nonmatches and absent/unclear fields from processing failures. Preserve earlier clear values or null; do not let broad failure wording override field rules.
+- Incremental outputs: check existing-entry preservation and duplicate prevention for exact repeats, subsets, observations that change existing group partitions, and interrupted retries. Persist enough planned output to recover after source movement; hashes alone cannot reconstruct readings. Make matching conflicts and recovery guarantees explicit before adopting a policy.
 - Data fidelity: separate every displayed field, dashboard clock, and metadata capture time. Verify conversions, time zones, boundaries, cross-month handling, and filename/move behavior only against approved decisions and fixtures.
 - Safety and security: inspect filesystem handling, move failure/recovery risks, logging, secrets, fixture privacy, dependency/model provenance, and offline processing. Confirm no external API is required during processing.
 - Performance: review algorithm and resource use against measured workload/environment evidence. Do not invent thresholds or claim unrun measurements.

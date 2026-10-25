@@ -2,7 +2,7 @@
 
 ## Implemented design
 
-The `flex_photo` package uses a standard-library Python CLI. `cli.py` owns argument parsing, console JSON and sanitized diagnostics; `discovery.py` owns filesystem traversal. `metadata.py` reads original-capture fields through pinned ExifRead; its [contract](capture-metadata.md) defines the library interface, parser guards and acceptance gates. The [discovery contract](heic-discovery.md) is authoritative for its interfaces, selection rules, failure semantics and limitations. `capture_time.py` converts those fields through the [capture-time contract](capture-time.md). Recognition/OCR, trip grouping, photo movement and monthly JSON are not implemented.
+The `flex_photo` package uses a standard-library Python CLI. `cli.py` owns argument parsing, console JSON and sanitized diagnostics; `discovery.py` owns filesystem traversal. `metadata.py` reads original-capture fields through pinned ExifRead; its [contract](capture-metadata.md) defines the library interface, parser guards and acceptance gates. The [discovery contract](heic-discovery.md) is authoritative for its interfaces, selection rules, failure semantics and limitations. `capture_time.py` converts those fields through the [capture-time contract](capture-time.md). `grouping.py` implements the pure [trip-grouping contract](trip-grouping.md). Recognition/OCR, field selection, photo movement and monthly JSON are not implemented.
 
 Packaging uses a `src/` layout and hash-pinned setuptools to build a wheel. A digest-pinned, multi-stage Linux container installs that wheel and runs as a nonroot user. SHA-pinned GitHub Actions run installed-package tests on Windows/Linux and restricted container smoke checks. See [setup](bootstrap.md), [test coverage](testing-plan.md), and [automation](github-test-automation.md).
 
@@ -15,8 +15,8 @@ Packaging uses a `src/` layout and hash-pinned setuptools to build a wheel. A di
 | `.agents/skills/project-documentation/SKILL.md` | Repository-local documentation skill loaded before documentation edits and reviews. |
 | `docs/` | Business/technical requirements, design, setup instructions, pipeline, testing, automation and persistent review guidance. |
 | `pyproject.toml`, `requirements-build.txt`, `requirements-runtime.txt` | Package configuration and hash-pinned build/runtime dependencies. |
-| `src/flex_photo/` | Candidate discovery, bounded capture-metadata reader, pure capture-time conversion, CLI, version and module entry point. |
-| `tests/unit/` | CLI behavior, discovery traversal/error assertions, capture-metadata/parser-guard checks and capture-time validation. |
+| `src/flex_photo/` | Candidate discovery, bounded capture-metadata reader, pure capture-time conversion and trip grouping, CLI, version and module entry point. |
+| `tests/unit/` | CLI behavior, discovery traversal/error assertions, capture-metadata/parser-guard checks, capture-time validation and grouping invariants. |
 | `tests/integration/` | Installed wheel, module/console behavior and no output-file effects outside source root. |
 | `tests/performance/` | Separate startup and synthetic discovery measurements; no photo workload. |
 | `scripts/` | Repeatable tests, installed-wheel build and restricted-container helpers. |
@@ -27,11 +27,13 @@ Packaging uses a `src/` layout and hash-pinned setuptools to build a wheel. A di
 | `.agent-state/<feature>/` | Ignored laptop-local approval, status, reports, resume instructions and per-agent handoffs. |
 | `.venv/`, `build/`, `dist/`, `reports/` | Ignored local environment, package outputs and sanitized validation reports. |
 
-Future recognition/OCR, grouping/selection, move/JSON modules, models and publishable processing fixtures are deliberately absent. Native dependency artifacts and JSON schema require later validation/decisions. Keep generated data, downloaded assets and sensitive photos out of tracked history.
+Future recognition/OCR, field-selection and move/JSON modules, models and publishable processing fixtures are deliberately absent. Native dependency artifacts and JSON schema require later validation/decisions. Keep generated data, downloaded assets and sensitive photos out of tracked history.
 
 ## Future processing design proposals
 
 The implemented [capture metadata reader](capture-metadata.md) separates original-capture EXIF inspection from later timestamp interpretation and image operations. The implemented [capture-time converter](capture-time.md) uses the standard library without adding CLI or grouping behavior.
+
+The implemented [trip-grouping contract](trip-grouping.md) defines the internal partition and ordering API independently of future extraction and field selection.
 
 The following broader design remains proposed. It is not authorization to implement later processing or select native/model artifacts. Open business policies remain in [BRD](BRD.md).
 
@@ -56,7 +58,7 @@ Names below describe responsibilities, not finalized API signatures. Keep pure g
 2. `ReadPhoto(path) → image + original metadata`: decode primary image and orient OCR pixels without changing the original. Validate EXIF/sub-IFD/offset/subsecond behavior with original HEIC samples. [Pillow tags](https://pillow.readthedocs.io/en/stable/_modules/PIL/ExifTags.html) include DateTimeOriginal and related offset/subsecond tags. The approved [capture-time converter](capture-time.md) uses only original-capture metadata and requires an explicit offset. Batch handling of missing/invalid values remains unresolved; never silently use file modification time or dashboard clock. With no user preference, propose leaving rejected-timestamp photos untouched and reporting them; this needs approval and does not waive eventual move/group requirements.
 3. `Recognize(image) → layout/nonmatch/unresolved`: use title/labels and layout regions for Trip Summary and Drive Info. All matches qualify as Flex. Actual crops, preprocessing and recognition/readability criteria require representative samples.
 4. `Extract(layout,image) → field observations`: retain raw text, parsed value/unit when clear, and per-field clarity (`clear`, `unclear`, `absent`), with internal OCR evidence. Confidence alone is not established clarity; do not infer unreadable digits from plausibility. Inventory every displayed field present in samples.
-5. `Group(observations,window) → trips`: propose chronological earliest-unassigned anchoring. Apply the confirmed inclusive first-to-last bound in [BRD R07](BRD.md): admit a photo only while its capture time minus the first photo's time is less than or equal to the configured window. Reset anchor for the next group. Never chain consecutive gaps beyond the total bound. Timestamp ties remain unresolved; separate real trips within the window need user clarification.
+5. `Group(observations,window) -> trips`: use the implemented [grouping API](trip-grouping.md) on qualified observations' capture times, then map its original indices back to observations. The contract defines partitioning, stable equal-time order and validation. No additional trip-identity validation is required; field-value ties remain separate.
 6. `SelectFields(trip) → values/nulls`: for each field separately, traverse capture times newest first and choose the first clear observation. Newer absent/unclear values never erase earlier clear values; none clear gives JSON null. Equal-time conflicts need an approved tie policy.
 7. `PlanOutput(trips) → output/move plan`: one entry per trip, one monthly file. Cross-month ownership/timezone and repeated-run identity/update policy must be decided; splitting a cross-month trip would violate one entry per trip.
 8. `ApplyMovesAndWrite(plan)`: move only matching originals and write monthly JSON. User approves sequential collision suffix `-##`. Propose `-01` before extension, increment without overwrite, expanding beyond two digits; exact numbering, existing suffixes and races need confirmation. Propose verified cross-volume copy-before-delete and temporary JSON plus atomic replacement where supported; this does not make an entire run transactional. Move/write order, failures/recovery and repeat runs remain open.

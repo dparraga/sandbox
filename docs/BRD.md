@@ -15,7 +15,7 @@ Candidate discovery is implemented. Photo-content processing remains future work
 | R03 | Recognizes Trip Summary and Drive Info layouts; matching photos qualify as Flex photos. |
 | R04 | Moves matches to the user's destination; unrelated photos remain untouched. Move/error policies require decisions below. |
 | R05 | Extracts all available displayed fields and photo capture timestamps. |
-| R06 | Groups matches into trips using capture metadata timestamps. |
+| R06 | Groups qualifying dashboard photos into trips using capture metadata timestamps. Photos within the configured first-to-last window belong to the same trip; no additional trip-identity validation is required. See the [grouping contract](trip-grouping.md) for the deterministic partition. |
 | R07 | Configurable first-to-last trip window defaults to three minutes. Include the boundary: elapsed time from first to last capture must be less than or equal to the configured window. A group never grows through consecutive-photo chaining beyond that window. |
 | R08 | Produces one JSON file per month and exactly one entry per trip; month assignment policy is pending. |
 | R09 | Selects the most recent clearly readable value independently per field. |
@@ -38,7 +38,7 @@ Destination filename collisions add a sequential `-##` suffix. Trip Time means h
 - Original samples of both layouts are available locally. Complete human field/readability labels and obtain additional nonmatches/edge cases; publication of tracked fixtures is not authorized.
 - Confirm project license, exact future native/OCR artifacts and proposed JSON schema before dependent work.
 - Batch handling of rejected or missing original-capture timestamps: skip, stop or another explicitly approved policy? The [converter](capture-time.md) requires an explicit offset and uses no fallback; never silently substitute file modification time or dashboard clock.
-- Timestamp ties need an approved handling policy.
+- Equal-time field-value conflicts need an approved handling policy. Stable input order in grouping does not choose field winners.
 - Details of the approved sequential collision suffix, nested/overlapping source/destination, repeat runs/duplicate trip handling, partial move/write failures and recovery behavior.
 - Trips crossing month boundaries: which month owns the single entry, and which timezone determines month?
 - Other duration formats, if encountered, and raw readings versus normalized values/units in the schema remain open.

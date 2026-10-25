@@ -1,6 +1,6 @@
 # Technical requirements
 
-These requirements constrain the solution described by the [BRD](BRD.md). The [solution design](repository-structure.md) explains implementation choices. [Discovery](heic-discovery.md) is implemented; the [capture metadata reader](capture-metadata.md) is implemented; its contract defines the acceptance gates and limits. The approved [capture-time contract](capture-time.md) defines internal timestamp conversion. Later photo processing needs scoped approval before implementation.
+These requirements constrain the solution described by the [BRD](BRD.md). The [solution design](repository-structure.md) explains implementation choices. [Discovery](heic-discovery.md) is implemented; the [capture metadata reader](capture-metadata.md) is implemented; its contract defines the acceptance gates and limits. The approved [capture-time contract](capture-time.md) defines internal timestamp conversion. The approved [trip-grouping contract](trip-grouping.md) defines implemented internal grouping. Later photo processing needs scoped approval before implementation.
 
 | ID | Technical requirement | Traceability |
 | --- | --- | --- |

@@ -8,7 +8,7 @@ The user authorizes the local `sample-pictures/` collection for evaluation and t
 - Each decoded image reports 4032 × 3024 pixels and one frame through this adapter. Oriented previews were visually inspected. This does not prove orientation handling for other files or enumerate every auxiliary HEIF item.
 - Visual inspection identifies eight Drive Info and eight Trip Summary photos. No labeled nonmatching examples are present. Framing, glare, reflections, dust and perspective vary.
 - Every file exposes `DateTimeOriginal`, `SubsecTimeOriginal` and `OffsetTimeOriginal`; the observed offset is `-07:00`. Filename hour differs from local capture hour in this dataset, consistent with the offset. Filenames remain identifiers, not the authoritative timestamp. Do not generalize a filename-time rule or assign an offset to files that lack one.
-- An arithmetic check using the proposed 180-second first-anchor grouping gives eight candidate groups of two photos each, with first-to-last spans from 7.275 to 15.321 seconds. This is not application output or confirmation of real trip identity; the proposed grouping policy remains subject to approval.
+- The approved [grouping contract](trip-grouping.md) assigns qualifying dashboard photos within the configured first-to-last window to the same trip. Layout qualification remains separate from grouping.
 - SHA-256 values were recorded before/after reading and independently rechecked against the local manifest: all 16 original byte contents are unchanged. No original was moved or rewritten.
 
 ## Layout and design implications

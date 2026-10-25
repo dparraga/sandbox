@@ -25,12 +25,15 @@ Candidate discovery is implemented. Photo-content processing remains future work
 | R13 | One-time dependency/model downloads and installation are allowed, with clear setup and verification instructions. Subsequent photo processing works entirely offline, including any AI OCR; no external processing API calls. |
 | R14 | Keep trip distance, trip duration, EV driving ratio, average MPG, odometer, remaining range and dashboard clock distinct. Capture date/time comes from photo metadata, not dashboard clock. Preserve any additional displayed fields discovered in samples. |
 | R15 | Produce one report file per run in the JSON output folder, identifying each affected photo, issue and action. Preserve the report through preflight stops and failures where possible; report persistence must not depend on successful monthly output or moves. |
+| R16 | For an unexpected error or case, skip the affected item or operation, record the affected photo/item, issue and action in the report or log, and continue independent work. Preserve originals, completed work and pending progress; do not write/delete unverified or unsafe items, overwrite/corrupt data or claim skipped work completed. If a shared failure prevents all remaining work, report where possible and finish without repeated futile attempts. Explicit known-case rules, including R09's conflicting-reading preflight stop, remain in force. |
 
 Acceptance starts with the 16 private, permissioned samples and must state their coverage limitations; publication is not authorized. Expected batches contain 500-1000 photos, about 300 matching, on a Windows laptop with 32 GB RAM and an Intel Core Ultra 9 288V. These describe evaluation conditions, not speed, memory or accuracy targets. Local decode/metadata and visual sample evaluation are documented separately; no application OCR or processing results have been measured.
 
 ## Constraints and exclusions
 
 No cloud processing, paid/proprietary processing dependencies, GUI, or extra business features are requested. Installation/model provisioning is separate from offline execution. The application's own code and documentation use MIT; preserve third-party licenses, attribution and notices. MIT does not waive dependency or binary-distribution obligations. Exact dependency/model artifacts and the JSON schema remain gates before dependent work.
+
+R16 governs future batch orchestration. Existing discovery, metadata, capture-time, grouping and field-candidate APIs retain their approved validation and error contracts.
 
 Destination filename collisions append `-01`, `-02`, and so on to the original stem before the extension, expanding beyond two digits and never overwriting an existing file; `photo-01.HEIC` becomes `photo-01-01.HEIC` on collision. Source, destination and JSON output folders must be separate and nonnested. Capture timestamps retain their full metadata date, time and offset under the approved [capture-time contract](capture-time.md). See [sample evaluation](sample-evaluation.md) for private evidence.
 
@@ -39,7 +42,7 @@ Destination filename collisions append `-01`, `-02`, and so on to the original s
 - Complete human field/readability labels and field inventory; validate recognition and document sample coverage limitations. OCR confidence alone is not established evidence.
 - Validate exact native/OCR artifacts and redistribution compatibility before adoption.
 - Present a complete monthly JSON example for user approval before dependent implementation; exact field names/types, equality representation and report format remain design work. Preserve all displayed fields without inventing a complete inventory.
-- Exact-repeat/overlap identity and matching, provenance, partial move/write recovery and other failure policies remain proposed. Incremental append, exact-repeat skipping, overlap reporting and safe resume are confirmed.
+- Exact-repeat/overlap identity and matching, provenance and partial move/write recovery mechanisms remain proposed. Incremental append, exact-repeat skipping, overlap reporting, safe resume and R16's unexpected-error continuation are confirmed.
 - Clarify only if material: how the unexpected-duration null rule interacts with an earlier clear duration in the same trip. Ordinary omitted/unclear fields retain the R10 rule; do not silently choose cross-photo semantics for the exception.
 
 Obtain decisions before implementing dependent behavior. The proposed [integrated delivery plan](delivery-plan.md) consolidates remaining work and decision recommendations; approval must explicitly cover its scope and policies. Existing component approvals remain limited to their contracts.

@@ -1,0 +1,124 @@
+{
+  "status": "Evaluation candidates only; no application adoption, redistribution clearance or accuracy claim.",
+  "publisher_metadata": [
+    "https://pypi.org/pypi/Pillow/13.0.0/json",
+    "https://pypi.org/pypi/pillow-heif/1.8.1/json"
+  ],
+  "wheels": [
+    {
+      "package": "Pillow",
+      "version": "13.0.0",
+      "python": "cp313",
+      "platform": "Windows",
+      "architecture": "x86_64",
+      "filename": "pillow-13.0.0-cp313-cp313-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/d7/ed/1b16fb66a37e1b9e41370b93b2c614c7da761a5b2a41dc333f7af4639962/pillow-13.0.0-cp313-cp313-win_amd64.whl",
+      "sha256": "9dda0788a9932776a75d8bcc020076edc308ce2508b51f6739a45e3158b3fc42",
+      "bytes": 7284777
+    },
+    {
+      "package": "Pillow",
+      "version": "13.0.0",
+      "python": "cp313",
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "filename": "pillow-13.0.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/ef/fe/f5cdaa2d1c4086e757430f368c271a58ee29cfe7378e7ae7b9d964015c25/pillow-13.0.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "5f56499c1a74d2b862beb0c33b8016f99d095858455df9d21583bbbc1c15b582",
+      "bytes": 7142544
+    },
+    {
+      "package": "Pillow",
+      "version": "13.0.0",
+      "python": "cp314",
+      "platform": "Windows",
+      "architecture": "x86_64",
+      "filename": "pillow-13.0.0-cp314-cp314-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/50/e2/7ad17747517e4c813dca78257d6bb593466f8231baf1384bc98d92745edb/pillow-13.0.0-cp314-cp314-win_amd64.whl",
+      "sha256": "f7cbb7a64e7ec664775195e4f81923bc8a93d9451b963f844e59118f63147a7a",
+      "bytes": 7281830
+    },
+    {
+      "package": "Pillow",
+      "version": "13.0.0",
+      "python": "cp314",
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "filename": "pillow-13.0.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/1d/f2/1371707ce438ba9a43f9d24089828494ec6f9396e28cd7903aa704dd6306/pillow-13.0.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "e91c2b1cbeae768c98752e67e717e283d68dae45717b41f2d91eaee648e37b7d",
+      "bytes": 7142574
+    },
+    {
+      "package": "pillow-heif",
+      "version": "1.8.1",
+      "python": "cp313",
+      "platform": "Windows",
+      "architecture": "x86_64",
+      "filename": "pillow_heif-1.8.1-cp313-cp313-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/37/b5/42eda6f5a7894276592c2b499caad152b057f62b4e1dabab26d808cd0c71/pillow_heif-1.8.1-cp313-cp313-win_amd64.whl",
+      "sha256": "f2110c6f9ec02efecf52a979addaf5734770e55ca29705ce0c3f0e588db5e6b5",
+      "bytes": 6604096
+    },
+    {
+      "package": "pillow-heif",
+      "version": "1.8.1",
+      "python": "cp313",
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "filename": "pillow_heif-1.8.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/62/1e/32b8a70a253ac5c805e65b89c94ad404fbaf0af602499b1cf0f85fbf28f6/pillow_heif-1.8.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "cf1f60ee05d1280f98c00a052829963e57790dce0ca8203828658b14f8c0cf7b",
+      "bytes": 5708847
+    },
+    {
+      "package": "pillow-heif",
+      "version": "1.8.1",
+      "python": "cp314",
+      "platform": "Windows",
+      "architecture": "x86_64",
+      "filename": "pillow_heif-1.8.1-cp314-cp314-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/89/06/be02e0307ebb6772d94f6347729f979457669c6b868a83caaa8b736c5425/pillow_heif-1.8.1-cp314-cp314-win_amd64.whl",
+      "sha256": "c583f2c08aa08848e7b97f4b416f5dce9f485182fd55efd39edba10f092ee651",
+      "bytes": 6781849
+    },
+    {
+      "package": "pillow-heif",
+      "version": "1.8.1",
+      "python": "cp314",
+      "platform": "Linux",
+      "architecture": "x86_64",
+      "filename": "pillow_heif-1.8.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/51/5a/0b3961c9a0bd7f54c65aa8cf06ac2ff806850d9d14fae78a3835148488b9/pillow_heif-1.8.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "6045ef6f9bd7107713b95c8b1ac02418fee08f5b116a9e3cd1e11a5d95007f38",
+      "bytes": 5708943
+    }
+  ],
+  "model": {
+    "repository": "tesseract-ocr/tessdata_fast",
+    "commit": "65727574dfcd264acbb0c3e07860e4e9e9b22185",
+    "filename": "eng.traineddata",
+    "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/65727574dfcd264acbb0c3e07860e4e9e9b22185/eng.traineddata",
+    "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+    "bytes": 4113088
+  },
+  "synthetic_fixture": {
+    "filename": "synthetic-white.heic",
+    "bytes": 400,
+    "sha256": "1a290a113aef4763e7bb78fe9a6ca7d26cbac74847538ae69bfd6b423092173e",
+    "source": "Project-authored uniform white 64x64 RGB image; no private or photographic content/metadata. Static HEVC decode fixture only; no CI encoding.",
+    "authored_date": "2026-10-26",
+    "authoring_tools": {
+      "Pillow": "13.0.0",
+      "pillow-heif": "1.8.1",
+      "libheif": "1.23.6",
+      "x265": "4.3+1-e9b8812"
+    },
+    "width": 64,
+    "height": 64,
+    "channel_range": [
+      250,
+      255
+    ]
+  }
+}

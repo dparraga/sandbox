@@ -78,3 +78,89 @@ jobs:
         run: docker build --file container/Dockerfile --tag flex-photo:bootstrap .
       - name: Restricted offline nonroot runtime checks
         run: python scripts/check_container.py flex-photo:bootstrap
+
+  interpretation-candidates:
+    name: Candidate import ${{ matrix.os }} Python ${{ matrix.python }}
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.13', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Provision hash-verified candidates in an isolated audit environment
+        run: python scripts/check_interpretation_assets.py --provision reports/candidate-audit
+      - name: Linux native import and synthetic HEVC probe (OCR unavailable here)
+        if: runner.os == 'Linux'
+        run: >-
+          python -c "import subprocess,sys;
+          result=subprocess.run([sys.executable,'scripts/check_interpretation_assets.py','--probe','reports/candidate-audit']);
+          sys.exit(0 if result.returncode == 2 else 1)"
+      - name: Windows verified portable OCR and outbound-blocked synthetic probe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $audit = (Resolve-Path reports/candidate-audit).Path
+          $installer = Join-Path $audit 'tesseract.exe.installer'
+          Invoke-WebRequest -Uri 'https://github.com/tesseract-ocr/tesseract/releases/download/5.5.3/tesseract-ocr-w64-setup-5.5.3.20260724.exe' -OutFile $installer -TimeoutSec 120
+          if ((Get-Item $installer).Length -ne 26573224 -or (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'bee9e3434bd94fd65387d9be28cd467a41f61b1275383b55b0f59a1331270ae4') {
+            throw 'OCR installer hash or size mismatch'
+          }
+          $payload = Join-Path $audit 'ocr'
+          # Extract only engine and DLLs; never execute the installer or its models/configs.
+          $extractor = (Get-Command 7z -CommandType Application).Source
+          & $extractor x $installer "-o$payload" 'tesseract.exe' '*.dll' -r -y
+          if ($LASTEXITCODE -ne 0) { throw 'OCR extraction failed' }
+          $engine = (Resolve-Path (Join-Path $payload 'tesseract.exe')).Path
+          $interpreter = (Resolve-Path (Join-Path $audit 'venv/Scripts/python.exe')).Path
+          if (Get-NetFirewallProfile | Where-Object { -not $_.Enabled }) { throw 'Windows firewall profile disabled' }
+          if ((Get-Service MpsSvc).Status -ne 'Running') { throw 'Windows firewall service inactive' }
+          $baseInterpreter = & $interpreter -I -c 'import sys; print(sys._base_executable)'
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify base interpreter' }
+          $baseInterpreter = (Resolve-Path $baseInterpreter).Path
+          $names = @('FlexPhotoCandidatePython', 'FlexPhotoCandidateBasePython', 'FlexPhotoCandidateOCR')
+          try {
+            New-NetFirewallRule -DisplayName $names[0] -Direction Outbound -Program $interpreter -Action Block -Profile Any | Out-Null
+            New-NetFirewallRule -DisplayName $names[1] -Direction Outbound -Program $baseInterpreter -Action Block -Profile Any | Out-Null
+            New-NetFirewallRule -DisplayName $names[2] -Direction Outbound -Program $engine -Action Block -Profile Any | Out-Null
+            foreach ($name in $names) {
+              $rule = Get-NetFirewallRule -PolicyStore ActiveStore -DisplayName $name -ErrorAction Stop
+              if ($rule.Enabled -ne 'True' -or $rule.Action -ne 'Block') { throw 'Egress block rule inactive' }
+            }
+            python scripts/check_interpretation_assets.py --probe $audit --tesseract $engine
+            if ($LASTEXITCODE -ne 0) { throw 'Windows candidate probe failed' }
+          } finally {
+            foreach ($name in $names) { Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule }
+          }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: candidate-import-${{ matrix.os }}-${{ matrix.python }}
+          path: reports/candidate-audit/probe.json
+          retention-days: 7
+          if-no-files-found: error
+
+  interpretation-container-candidate:
+    name: Candidate restricted offline OCR
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build disposable candidate image with recorded native package versions
+        run: docker build --file container/ArtifactAudit.Dockerfile --tag flex-photo:candidate-audit .
+      - name: Network-disabled read-only nonroot synthetic model execution
+        run: >-
+          docker run --rm --network none --read-only --cap-drop ALL
+          --security-opt no-new-privileges --memory 1g --cpus 2
+          --tmpfs /tmp:rw,noexec,nosuid,size=64m,mode=1777 flex-photo:candidate-audit

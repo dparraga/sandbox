@@ -27,7 +27,7 @@ Packaging uses a `src/` layout and hash-pinned setuptools to build a wheel. A di
 | `.agent-state/<feature>/` | Ignored laptop-local approval, status, reports, resume instructions and per-agent handoffs. |
 | `.venv/`, `build/`, `dist/`, `reports/` | Ignored local environment, package outputs and sanitized validation reports. |
 
-Future recognition/OCR and move/JSON modules, models and publishable processing fixtures are deliberately absent. Native dependency artifacts and JSON schema require later validation/decisions. Keep generated data, downloaded assets and sensitive photos out of tracked history.
+Future recognition/OCR and move/JSON modules, models and publishable processing fixtures are deliberately absent. The interpretation interface and monthly JSON schema are approved; native dependency adoption still requires artifact validation. Keep generated data, downloaded assets and sensitive photos out of tracked history.
 
 ## Remaining delivery design
 

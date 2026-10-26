@@ -22,7 +22,7 @@ The caller supplies a finite sequence of timestamps corresponding to already-qua
 
 Earliest-unassigned anchoring creates one deterministic partition while enforcing the first-to-last bound. Stable equal-time input order preserves caller identity without choosing a newest or winning reading. Later value resolution and month assignment follow the confirmed [BRD](BRD.md) rules; grouping order is not a tie-breaking policy.
 
-The caller supplies already-qualified observations; grouping does not perform layout recognition. Readability validation, artifact/schema approval and detailed move/output mechanics remain gates in the [delivery plan](delivery-plan.md). Confirmed batch exclusions, value resolution and month rules do not change this pure grouping component. All available dashboard fields remain required for later extraction and independent latest-clear selection.
+The caller supplies already-qualified observations; grouping does not perform layout recognition. Readability validation, artifact adoption and detailed move/output mechanics remain gates in the [delivery plan](delivery-plan.md). Confirmed batch exclusions, value resolution and month rules do not change this pure grouping component. Future extraction and independent latest-clear selection are limited to the four readings in [BRD R05/R14](BRD.md), with trip date derived from capture metadata.
 
 No CLI, configuration parser, I/O, decoding, recognition/OCR, field extraction/selection, serialization, trip identifiers, dependencies, model assets or framework are included.
 

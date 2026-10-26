@@ -4,7 +4,7 @@
 
 - Lead is the user's communication point. Keep scope simple; ask about ambiguity and do not add features.
 - Read the active feature's ignored state and approved contract before work. Stay within its recorded approval; proposals are not approvals.
-- Business requirements live in [BRD](docs/BRD.md), technical requirements in [TRD](docs/TRD.md), and implementation design in the referenced design documents. Existing LICENSE is preserved pending the user's license decision.
+- Business requirements live in [BRD](docs/BRD.md), technical requirements in [TRD](docs/TRD.md), and implementation design in the referenced design documents. The project's own code and documentation use MIT; preserve all third-party licenses, attribution and notices.
 - Work on one feature at a time, always on a feature branch. Inspect status, remotes, base and existing changes first. Never bypass an absent usable base; coordinate initialization with the user.
 - Preserve unrelated files and changes. Do not fabricate photos, readings, results, approvals, or operational capabilities.
 

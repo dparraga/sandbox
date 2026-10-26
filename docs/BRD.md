@@ -13,36 +13,36 @@ Candidate discovery is implemented. Photo-content processing remains future work
 | R01 | Runs on a Windows laptop; validates processing in a container. |
 | R02 | Recursively discovers HEIC photos in the selected folder/subfolders. |
 | R03 | Recognizes Trip Summary and Drive Info layouts; matching photos qualify as Flex photos. |
-| R04 | Moves matches to the user's destination; unrelated photos remain untouched. Move/error policies require decisions below. |
-| R05 | Extracts all available displayed fields and photo capture timestamps. |
+| R04 | Moves eligible matches to the user's destination; nonmatches remain untouched and processing continues. Leave qualifying photos with missing/invalid original-capture timestamps untouched, report them and continue without a timestamp fallback. Preserve completed work after interruption, safely resume verified pending work and provide concise recovery instructions; detailed mechanisms remain proposed. |
+| R05 | Extracts all available displayed fields and photo capture timestamps. Preserve displayed units without conversion. Trip Time is hours:minutes and is stored as `hh:mm`; an unexpected duration format produces null for duration, is reported and does not block other fields. |
 | R06 | Groups qualifying dashboard photos into trips using capture metadata timestamps. Photos within the configured first-to-last window belong to the same trip; no additional trip-identity validation is required. See the [grouping contract](trip-grouping.md) for the deterministic partition. |
 | R07 | Configurable first-to-last trip window defaults to three minutes. Include the boundary: elapsed time from first to last capture must be less than or equal to the configured window. A group never grows through consecutive-photo chaining beyond that window. |
-| R08 | Produces one JSON file per month and exactly one entry per trip; month assignment policy is pending. |
-| R09 | Selects the most recent clearly readable value independently per field. |
+| R08 | Produces one JSON file per month and exactly one entry per trip, assigned to the last photo's metadata-local month. If equally latest photos have different local months, use their shared instant's UTC month and report the exception. Append new trips to existing monthly JSON, skip exact repeats and report overlaps for reconciliation without silently changing existing entries; matching details remain proposed. |
+| R09 | Selects the most recent clearly readable value independently per field; clear zero is valid. Identical equally latest parsed values with identical units collapse to one value; conflicting equally latest clear readings stop preflight and are reported. |
 | R10 | Retains earlier clear values when later photos omit or obscure those fields. |
 | R11 | Emits JSON null for a field with no clear value across the trip. |
 | R12 | Uses only free, open-source libraries and models. Review direct/transitive/native and model licensing. |
-| R13 | Photo processing works entirely offline, including any AI OCR; no external processing API calls. |
+| R13 | One-time dependency/model downloads and installation are allowed, with clear setup and verification instructions. Subsequent photo processing works entirely offline, including any AI OCR; no external processing API calls. |
 | R14 | Keep trip distance, trip duration, EV driving ratio, average MPG, odometer, remaining range and dashboard clock distinct. Capture date/time comes from photo metadata, not dashboard clock. Preserve any additional displayed fields discovered in samples. |
+| R15 | Produce one report file per run in the JSON output folder, identifying each affected photo, issue and action. Preserve the report through preflight stops and failures where possible; report persistence must not depend on successful monthly output or moves. |
+| R16 | For an unexpected error or case, skip the affected item or operation, record the affected photo/item, issue and action in the report or log, and continue independent work. Preserve originals, completed work and pending progress; do not write/delete unverified or unsafe items, overwrite/corrupt data or claim skipped work completed. If a shared failure prevents all remaining work, report where possible and finish without repeated futile attempts. Explicit known-case rules, including R09's conflicting-reading preflight stop, remain in force. |
 
-Acceptance will use user-provided, permissioned samples and approved policies. No OCR accuracy, coverage or performance target has been set. Local decode/metadata and visual sample evaluation are documented separately; no application OCR or processing results have been measured.
+Acceptance starts with the 16 private, permissioned samples and must state their coverage limitations; publication is not authorized. Expected batches contain 500-1000 photos, about 300 matching, on a Windows laptop with 32 GB RAM and an Intel Core Ultra 9 288V. These describe evaluation conditions, not speed, memory or accuracy targets. Local decode/metadata and visual sample evaluation are documented separately; no application OCR or processing results have been measured.
 
 ## Constraints and exclusions
 
-No cloud processing, paid/proprietary processing dependencies, GUI, or extra business features are requested. Installation/model provisioning is separate from offline execution. The existing Apache-2.0 license is retained pending the user's evaluation of alternatives; dependency/model licenses and the JSON schema need decisions before dependent work.
+No cloud processing, paid/proprietary processing dependencies, GUI, or extra business features are requested. Installation/model provisioning is separate from offline execution. The application's own code and documentation use MIT; preserve third-party licenses, attribution and notices. MIT does not waive dependency or binary-distribution obligations. Exact dependency/model artifacts and the JSON schema remain gates before dependent work.
 
-Destination filename collisions add a sequential `-##` suffix. Trip Time means hours:minutes and must be stored as `hh:mm`; capture timestamps retain their full metadata date, time, and offset. Exact suffix formatting/start/placement and unsupported duration formats remain open. The approved [capture-time contract](capture-time.md) validates original-capture timestamps without fallbacks. The user has no preference for missing timestamps; a future batch handling policy still needs approval. Local HEIC samples are authorized for evaluation and testing, not publication. See [sample evaluation](sample-evaluation.md).
+R16 governs future batch orchestration. Existing discovery, metadata, capture-time, grouping and field-candidate APIs retain their approved validation and error contracts.
+
+Destination filename collisions append `-01`, `-02`, and so on to the original stem before the extension, expanding beyond two digits and never overwriting an existing file; `photo-01.HEIC` becomes `photo-01-01.HEIC` on collision. Source, destination and JSON output folders must be separate and nonnested. Capture timestamps retain their full metadata date, time and offset under the approved [capture-time contract](capture-time.md). See [sample evaluation](sample-evaluation.md) for private evidence.
 
 ## Open decisions
 
-- Original samples of both layouts are available locally. Complete human field/readability labels and obtain additional nonmatches/edge cases; publication of tracked fixtures is not authorized.
-- Confirm project license, exact future native/OCR artifacts and proposed JSON schema before dependent work.
-- Batch handling of rejected or missing original-capture timestamps: skip, stop or another explicitly approved policy? The [converter](capture-time.md) requires an explicit offset and uses no fallback; never silently substitute file modification time or dashboard clock.
-- Equal-time field-value conflicts need an approved handling policy. Stable input order in grouping does not choose field winners.
-- Details of the approved sequential collision suffix, nested/overlapping source/destination, repeat runs/duplicate trip handling, partial move/write failures and recovery behavior.
-- Trips crossing month boundaries: which month owns the single entry, and which timezone determines month?
-- Other duration formats, if encountered, and raw readings versus normalized values/units in the schema remain open.
-- What establishes “clearly readable,” handles conflicting readings and validates layout recognition? Requires samples; OCR confidence alone is not established evidence.
-- Expected workload/laptop resources for performance evaluation; no limits assumed.
+- Complete human field/readability labels and field inventory; validate recognition and document sample coverage limitations. OCR confidence alone is not established evidence.
+- Validate exact native/OCR artifacts and redistribution compatibility before adoption.
+- Present a complete monthly JSON example for user approval before dependent implementation; exact field names/types, equality representation and report format remain design work. Preserve all displayed fields without inventing a complete inventory.
+- Exact-repeat/overlap identity and matching, provenance and partial move/write recovery mechanisms remain proposed. Incremental append, exact-repeat skipping, overlap reporting, safe resume and R16's unexpected-error continuation are confirmed.
+- Clarify only if material: how the unexpected-duration null rule interacts with an earlier clear duration in the same trip. Ordinary omitted/unclear fields retain the R10 rule; do not silently choose cross-photo semantics for the exception.
 
-Obtain decisions before implementing dependent behavior. Each component approval is limited to its feature contract; later processing needs its own scoped approval.
+Obtain decisions before implementing dependent behavior. The proposed [integrated delivery plan](delivery-plan.md) consolidates remaining work and decision recommendations; approval must explicitly cover its scope and policies. Existing component approvals remain limited to their contracts.

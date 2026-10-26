@@ -17,7 +17,7 @@ The three-field restriction applies only to capture metadata. The requirement to
 
 ## Design and dependency
 
-Use `src/flex_photo/metadata.py` and `ExifRead==3.5.1`, without a custom HEIF parser. ExifRead is pure Python, has no runtime dependencies and uses BSD-3-Clause licensing. Pin its exact wheel and SHA-256 and retain its notice/license in distributed artifacts; preserve the repository's Apache-2.0 license. No native codec, OCR engine or model is introduced. Upstream lists support through Python 3.13; project Python 3.14 compatibility requires validation.
+Use `src/flex_photo/metadata.py` and `ExifRead==3.5.1`, without a custom HEIF parser. ExifRead is pure Python, has no runtime dependencies and uses BSD-3-Clause licensing. Pin its exact wheel and SHA-256 and retain its notice/license in distributed artifacts; retain the application's MIT license separately from ExifRead's BSD-3-Clause license. No native codec, OCR engine or model is introduced. Upstream lists support through Python 3.13; project Python 3.14 compatibility requires validation.
 
 Call `process_file` with `details=False`, `extract_thumbnail=False`, `debug=False`, `strict=True` and `truncate_tags=False`. Strict mode can still return no tags for invalid EXIF. Keep backend details behind the one function and immutable result; no provider framework, optional backend or general metadata API is needed.
 

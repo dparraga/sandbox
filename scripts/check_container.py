@@ -67,6 +67,7 @@ import importlib.metadata, pathlib
 from flex_photo.capture_time import CaptureTimeError, parse_capture_time
 from flex_photo.grouping import group_capture_times
 from flex_photo.metadata import CaptureMetadata, MetadataError, read_capture_metadata
+from flex_photo.selection import latest_clear_indices
 raw = read_capture_metadata(pathlib.Path('/photos/capture.heic'))
 assert raw == CaptureMetadata('2030:02:03 04:05:06', '+02:30', '123456')
 parsed = parse_capture_time(raw)
@@ -78,6 +79,16 @@ captures = [parsed + timedelta(minutes=4), parsed,
             parsed.astimezone(timezone.utc)]
 assert group_capture_times(captures) == ((1, 4, 2), (3, 0))
 assert group_capture_times([parsed, parsed + timedelta(minutes=2), parsed + timedelta(minutes=4)]) == ((0, 1), (2,))
+group = group_capture_times(captures)[0]
+local_times = [captures[index] for index in group]
+def source_candidates(flags):
+    return tuple(group[index] for index in latest_clear_indices(local_times, [flags[index] for index in group]))
+assert source_candidates([False, True, False, False, False]) == (1,)
+assert source_candidates([False, False, True, False, False]) == (2,)
+assert source_candidates([False, True, False, False, True]) == (1, 4)
+assert source_candidates([False] * len(captures)) == ()
+retained_values = [None, 0, None, None, None]
+assert tuple(retained_values[index] for index in source_candidates([False, True, False, False, False])) == (0,)
 try:
     parse_capture_time(CaptureMetadata(raw.date_time_original, None, None))
 except CaptureTimeError as error:
@@ -95,7 +106,7 @@ assert dependency.version == '3.5.1'
 licenses = [path for path in dependency.files if str(path).endswith('.dist-info/licenses/LICENSE')]
 assert len(licenses) == 1
 assert 'Redistribution and use in source and binary forms' in dependency.locate_file(licenses[0]).read_text()
-print('installed metadata extraction, capture-time conversion, grouping, guard and dependency license passed')
+print('installed metadata extraction, capture-time conversion, grouping, selection, guard and dependency license passed')
 """])
         assert not metadata_result.stderr
         assert {path.name: path.read_bytes() for path in (capture, unsafe)} == before

@@ -1,6 +1,6 @@
 ﻿# User guide
 
-Integrated processing is under development. Discovery and the capture-time/grouping components are established; the new OCR and recoverable batch command still need final sample, platform and end-to-end acceptance. Initial OCR evaluation missed readable fields, so command availability does not establish reliable extraction. The [delivery plan](delivery-plan.md) and [testing plan](testing-plan.md) define remaining validation.
+The application discovers HEIC candidates and processes supported Trip Summary and Drive Info photos using local assets. It writes monthly trip JSON, moves eligible originals without overwriting and retains verified recovery progress. Validation covers the existing 16 positive samples; unknown layouts remain untouched and are reported as unresolved. This does not establish general unseen-layout or real nonmatch accuracy. See the [testing plan](testing-plan.md) for coverage.
 
 ## Install on Windows
 
@@ -26,7 +26,7 @@ This helper downloads hash-verified upstream assets and extracts the engine with
 
 Discovery prints a JSON array of candidate paths and leaves files untouched. See its [traversal and error rules](heic-discovery.md#usage).
 
-The developing processing command uses three separate, nonnested local folders and explicit assets:
+The processing command uses three separate, nonnested local folders and explicit assets:
 
 ```powershell
 ./.venv/Scripts/flex-photo.exe process 'C:\Photos\Source' --destination 'C:\Photos\Organized' --json-output 'C:\Photos\Trip JSON' --window-seconds 180 --tesseract $assets.tesseract_executable --tessdata $assets.tessdata_directory --tesseract-sha256 $assets.executable_sha256
@@ -44,7 +44,7 @@ Inspect the unique `report-<UTC timestamp>-<token>.json` in the JSON output fold
 
 Keep `.flex-photo-state.json`, `.flex-photo.lock`, monthly files, destination copies and reports together. The private state stores original-byte identity and pending work; it is needed because public monthly JSON contains no photo identifiers. Exact complete repeats are skipped. Partial or overlapping memberships are left untouched for reconciliation; the command never silently rewrites old trips or imports externally edited output.
 
-After interruption, rerun the same command with the same folders and available local assets. A pending plan receives recovery-only handling using saved values and hashes; it does not reinterpret remaining sources or process new input in that invocation. After recovery completes, another normal invocation can process new photos. Preserve unexpected bytes and unresolved pending evidence; do not manually delete state or treat an interrupted move as a fresh run. Completed earlier trips remain completed. Recovery guarantees still require final fault/platform acceptance.
+After interruption, rerun the same command with the same folders and available local assets. A pending plan receives recovery-only handling using saved values and hashes; it does not reinterpret remaining sources or process new input in that invocation. After recovery completes, another normal invocation can process new photos. Preserve unexpected bytes and unresolved pending evidence; do not manually delete state or treat an interrupted move as a fresh run. Completed earlier trips remain completed.
 
 ## Troubleshooting
 

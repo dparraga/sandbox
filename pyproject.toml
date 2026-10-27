@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flex-photo"
 version = "0.1.0"
-description = "Offline HEIC candidate discovery for a dashboard photo organizer"
+description = "Offline HEIC dashboard interpretation and recoverable trip organization"
 readme = "README.md"
 requires-python = ">=3.13,<3.15"
 license = "MIT"

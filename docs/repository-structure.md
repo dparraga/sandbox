@@ -2,7 +2,7 @@
 
 ## Implemented design
 
-The `flex_photo` package uses a standard-library Python CLI. `cli.py` owns argument parsing, console JSON and sanitized diagnostics; `discovery.py` owns filesystem traversal. `metadata.py` reads original-capture fields through pinned ExifRead under its [contract](capture-metadata.md). `capture_time.py`, `grouping.py` and `selection.py` implement their pure [timestamp](capture-time.md), [grouping](trip-grouping.md) and [candidate-selection](field-selection.md) contracts. The developing `interpretation.py` interface uses a contained native worker for four-field OCR; `batch.py` composes preflight, exact value resolution, private identity/recovery state, movement and monthly output. Final integrated acceptance remains pending.
+The `flex_photo` package uses a standard-library Python CLI. `cli.py` owns argument parsing, console JSON and sanitized diagnostics; `discovery.py` owns filesystem traversal. `metadata.py` reads original-capture fields through pinned ExifRead under its [contract](capture-metadata.md). `capture_time.py`, `grouping.py` and `selection.py` implement their pure [timestamp](capture-time.md), [grouping](trip-grouping.md) and [candidate-selection](field-selection.md) contracts. The `interpretation.py` interface uses a contained native worker for four-field OCR; `batch.py` composes preflight, exact value resolution, private identity/recovery state, movement and monthly output. Component contracts and the testing plan define required acceptance and coverage limits.
 
 Packaging uses a `src/` layout and hash-pinned setuptools to build a wheel. A digest-pinned, multi-stage Linux container installs that wheel and runs as a nonroot user. SHA-pinned GitHub Actions run installed-package tests on Windows/Linux and restricted container smoke checks. See [setup](bootstrap.md), [test coverage](testing-plan.md), and [automation](github-test-automation.md).
 
@@ -31,7 +31,7 @@ Models and native binaries are provisioned from upstream rather than bundled. Ke
 
 ## Remaining delivery design
 
-The [integrated delivery plan](delivery-plan.md) defines approved batch composition, identity, recovery and end-to-end acceptance. Artifact-entry and architecture reviews passed; application implementation and validation remain in progress. Existing component contracts remain authoritative for their APIs.
+The [integrated delivery plan](delivery-plan.md) defines approved batch composition, identity, recovery and end-to-end acceptance. Artifact-entry and architecture reviews passed; installed-package validation remains distinct from source presence. Existing component contracts remain authoritative for their APIs.
 
 ## Project license
 

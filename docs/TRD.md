@@ -1,6 +1,6 @@
 # Technical requirements
 
-These requirements constrain the solution described by the [BRD](BRD.md). The [solution design](repository-structure.md) explains implementation choices. Discovery, original-capture metadata, timestamp conversion, grouping and latest-clear candidate selection are implemented under their component contracts. Interpretation and batch composition are under development; artifact-entry and batch architecture reviews passed, while final application acceptance remains pending.
+These requirements constrain the solution described by the [BRD](BRD.md). The [solution design](repository-structure.md) explains implementation choices. Discovery, original-capture metadata, timestamp conversion, grouping and latest-clear candidate selection are implemented under their component contracts. Interpretation and recoverable batch composition implement the reviewed component contracts. The testing plan distinguishes private reading acceptance, authored failure cases and supported-platform checks.
 
 | ID | Technical requirement | Traceability |
 | --- | --- | --- |

@@ -6,7 +6,7 @@ The [BRD](BRD.md) owns business policies, [TRD](TRD.md) owns technical requireme
 
 ## Current implementation and evidence
 
-Discovery, original capture metadata, fixed-offset timestamp conversion, bounded grouping and independent latest-clear index selection are implemented. Interpretation and batch composition have runnable development code, including the process command, monthly output, movement, reports and recovery. Final readability, recovery fault handling, platform acceptance and independent code review remain incomplete; code presence does not establish delivery.
+Discovery, original capture metadata, fixed-offset timestamp conversion, bounded grouping and independent latest-clear index selection are implemented. Interpretation and batch composition implement the process command, monthly output, verified movement, reports and recovery. The acceptance requirements below apply to the installed package; actual code revisions, results and limitations belong in the PR.
 
 Exact-artifact gate Review passed after hosted CI run [40284510596](https://github.com/dparraga/sandbox/actions/runs/40284510596): Windows/Linux Python 3.13/3.14 decode/native smoke and Windows/restricted bookworm synthetic OCR passed. The interpretation contract records scope, versions, advisory dispositions and remaining acceptance checks. Keep own code/docs MIT and preserve third-party terms. One-time provisioning may use networking; processing uses local assets offline. No private photos or derivatives enter CI, packages or published images.
 

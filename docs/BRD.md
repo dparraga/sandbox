@@ -4,7 +4,7 @@
 
 Reduce manual organization and transcription of Amazon Flex vehicle dashboard photos through a local console application. The intended process selects a source, identifies supported dashboard photos, groups readings by trip, organizes matching originals, and emits monthly trip records. All photos matching either supported layout qualify as Flex photos; no separate Flex classifier is required.
 
-Discovery and pure metadata/grouping/selection components are implemented. Interpretation and the integrated batch workflow are under implementation, not yet verified delivered. See the [discovery contract](heic-discovery.md) for its approved scope and limits and [technical requirements](TRD.md) for platform constraints.
+Discovery, metadata/grouping/selection, interpretation and the recoverable batch workflow are implemented. See the [discovery contract](heic-discovery.md) for its approved scope and limits and [technical requirements](TRD.md) for platform constraints; verification results and coverage limits are recorded separately.
 
 ## Requirements and acceptance criteria
 
@@ -27,7 +27,7 @@ Discovery and pure metadata/grouping/selection components are implemented. Inter
 | R15 | Produce one report file per run in the JSON output folder, identifying each affected photo, issue and action. Preserve the report through preflight stops and failures where possible; report persistence must not depend on successful monthly output or moves. |
 | R16 | For an unexpected error or case, skip the affected item or operation, record the affected photo/item, issue and action in the report or log, and continue independent work. Preserve originals, completed work and pending progress; do not write/delete unverified or unsafe items, overwrite/corrupt data or claim skipped work completed. If a shared failure prevents all remaining work, report where possible and finish without repeated futile attempts. Explicit known-case rules, including R09's conflicting-reading preflight stop, remain in force. For individual decode, OCR execution or resource failures, leave that photo untouched, report it and continue independent photos. Missing or unavailable shared assets stop the run, report it incomplete and permit no moves or monthly JSON changes. Preserve earlier completed runs and safe recovery evidence. |
 
-Acceptance starts with the 16 private, permissioned samples and must state their coverage limitations; publication is not authorized. Expected batches contain 500-1000 photos, about 300 matching, on a Windows laptop with 32 GB RAM and an Intel Core Ultra 9 288V. These describe evaluation conditions, not speed, memory or accuracy targets. Initial application OCR evaluation found unresolved layouts and unavailable readings; complete readability and integrated processing acceptance remain unverified.
+Acceptance starts with the 16 private, permissioned samples and must state their coverage limitations; publication is not authorized. Expected batches contain 500-1000 photos, about 300 matching, on a Windows laptop with 32 GB RAM and an Intel Core Ultra 9 288V. These describe evaluation conditions, not speed, memory or accuracy targets. Compare application readings and integrated outcomes against the existing private expectations, and report their coverage limitations.
 
 ## Constraints and exclusions
 
@@ -37,10 +37,10 @@ R16 governs integrated batch orchestration. Existing discovery, metadata, captur
 
 Destination filename collisions append `-01`, `-02`, and so on to the original stem before the extension, expanding beyond two digits and never overwriting an existing file; `photo-01.HEIC` becomes `photo-01-01.HEIC` on collision. Source, destination and JSON output folders must be separate and nonnested. Capture timestamps retain their full metadata date, time and offset under the approved [capture-time contract](capture-time.md). See [sample evaluation](sample-evaluation.md) for private evidence.
 
-## Remaining gates
+## Acceptance conditions
 
 - Validate actual recognition and four-reading output against the existing 16 private readability expectations; disclose primarily positive-sample coverage. Additional photos are not a new prerequisite. OCR confidence alone is not established evidence.
-- Complete installed Windows/Linux interpretation, monthly output, movement, reporting and recovery acceptance. The approved components are being implemented; artifact-entry and batch architecture reviews have passed under their recorded constraints.
+- Complete installed Windows/Linux interpretation, monthly output, movement, reporting and recovery acceptance. Artifact-entry and batch architecture reviews have passed under their recorded constraints; installed results must be recorded separately.
 - Preserve the source-only deployment route and upstream artifact notices. A native binary bundle or published prebuilt image requires a separate redistribution assessment.
 
 The approved trip date uses the last capture's metadata-local date; when equally latest captures have different days within the same local month, choose the greatest local calendar date and report it. The approved differing-local-month exception uses the shared instant's UTC date/month and is reported. No dashboard clock fallback is allowed.

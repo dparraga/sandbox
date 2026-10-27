@@ -1,6 +1,6 @@
 # Testing plan
 
-Automation covers installed CLI/packaging, discovery, metadata/time/grouping/selection, native interpretation mechanics and authored batch scenarios. Private evaluation separately compares actual OCR against the existing 16 positive samples. Current code and tests remain under development; final integrated acceptance is pending. Keep actual results, platform skips, failures and reviewed source identity in the feature PR and ignored local state. Component contracts own their acceptance rules; use [setup](bootstrap.md) for commands and [automation](github-test-automation.md) for CI.
+Automation covers installed CLI/packaging, discovery, metadata/time/grouping/selection, native interpretation mechanics and authored batch scenarios. Private evaluation separately compares actual OCR against the existing 16 positive samples. Per-photo reading checks and real CLI monthly/movement/repeat checks complement the authored failure cases; neither replaces the other. Keep actual results, platform skips, failures and reviewed source identity in the feature PR and ignored local state. Component contracts own their acceptance rules; use [setup](bootstrap.md) for commands and [automation](github-test-automation.md) for CI.
 
 Testing owns cases, fixtures, automation, execution, and results. After explicit implementation approval, Testing develops cases in parallel with Implementation and runs applicable tests as soon as code is runnable. Documentation records verified commands; Review independently checks coverage and findings; Lead validates evidence.
 

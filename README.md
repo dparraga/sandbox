@@ -1,8 +1,8 @@
 # Offline dashboard photo organizer
 
-A console application for offline HEIC dashboard processing on Windows and Linux. Discovery and capture-time/grouping libraries are implemented. Integrated OCR, photo movement, monthly trip JSON and recoverable batch processing are under development; final readability, platform and end-to-end acceptance remain pending.
+A console application for offline HEIC dashboard processing on Windows and Linux. The process command recognizes supported Trip Summary and Drive Info photos, selects four readings independently, moves eligible originals without overwriting, and appends monthly trip JSON with verified recovery. Validation uses the existing 16 positive samples; unknown layouts remain unresolved, and this corpus does not establish general nonmatch or unseen-layout accuracy.
 
-Start with the [user guide](docs/user-guide.md) and [setup, container and test commands](docs/bootstrap.md). Use `flex-photo discover SOURCE` for a console JSON inventory; see [discovery usage and limits](docs/heic-discovery.md#usage). The developing `process` command composes local interpretation with the [batch design](docs/delivery-plan.md); use `process --help` for its explicit folder and asset options. The CLI also supports `--help` and `--version`.
+Start with the [user guide](docs/user-guide.md) and [setup, container and test commands](docs/bootstrap.md). Use `flex-photo discover SOURCE` for a console JSON inventory; see [discovery usage and limits](docs/heic-discovery.md#usage). The `process` command composes local interpretation with the [batch design](docs/delivery-plan.md); use `process --help` for its explicit folder and asset options. The CLI also supports `--help` and `--version`.
 
 - [Business requirements](docs/BRD.md) and [technical requirements](docs/TRD.md)
 - [Solution design and repository structure](docs/repository-structure.md)

@@ -1,6 +1,6 @@
 # Monthly trip JSON
 
-**Approved contract; implementation acceptance pending.** This is the serialization contract for [BRD R05 and R08-R14](BRD.md), including the four readings, field names, representations, structural metadata, date and duration rules. The developing batch command emits this format; synthetic composition tests do not establish final OCR or recovery acceptance.
+**Implemented serialization contract.** This is the serialization contract for [BRD R05 and R08-R14](BRD.md), including the four readings, field names, representations, structural metadata, date and duration rules. The batch command emits this format; authored composition tests and real private-photo acceptance remain distinct checks.
 
 ## File, captures and trip date
 

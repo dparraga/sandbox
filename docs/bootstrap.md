@@ -1,6 +1,6 @@
 # Setup and execution
 
-Install the `flex-photo` console application on CPython 3.13 or 3.14. It provides [HEIC discovery](heic-discovery.md) and a developing integrated `process` command using separately provisioned upstream native/OCR assets. Final readability, recovery and platform acceptance remain pending. The [user guide](user-guide.md) describes processing options and asset provisioning.
+Install the `flex-photo` console application on CPython 3.13 or 3.14. It provides [HEIC discovery](heic-discovery.md) and an integrated `process` command using separately provisioned upstream native/OCR assets. The [user guide](user-guide.md) describes processing options and asset provisioning.
 
 ## Windows setup
 

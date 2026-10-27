@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.13,<3.15"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = ["ExifRead==3.5.1"]
+dependencies = ["ExifRead==3.5.1", "Pillow==13.0.0", "pillow-heif==1.8.1"]
 
 [project.scripts]
 flex-photo = "flex_photo.cli:main"

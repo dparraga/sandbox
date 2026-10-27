@@ -19,7 +19,7 @@ Every feature requires independent Review before a PR is created. Review archite
 - Licensing and cost: verify free, open-source dependency/model licenses, redistribution compatibility, and applicable runtime/hosting/storage costs. Keep the application's MIT license distinct from dependency/model/binary terms; verify copyright attribution and retained third-party notices in built artifacts.
 - Process and hygiene: confirm feature branch, independent review and recheck, required approval gates, and exclusion of `.agent-state/` from staging and the PR. Feature completion requires a verified merge; never merge automatically.
 
-Apply each category proportionately and record exclusions with reasons. Check installed CLI/package correctness, separate startup/discovery measurement labeling and container/CI evidence. Photo-processing tests remain future work; do not claim application coverage.
+Apply each category proportionately and record exclusions with reasons. Check installed CLI/package correctness, measurement labeling and container/CI evidence. Distinguish authored batch scenarios, native resource/mechanics tests and private dashboard accuracy; one cannot substitute for the others.
 
 ## PR feedback and lessons
 

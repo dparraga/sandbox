@@ -3,6 +3,8 @@
 import argparse
 from collections.abc import Sequence
 import json
+from datetime import timedelta
+import math
 from pathlib import Path
 import sys
 
@@ -13,13 +15,36 @@ from flex_photo.discovery import DiscoveryError, discover_heic
 def _main(argv: Sequence[str] | None) -> int:
     parser = argparse.ArgumentParser(
         prog="flex-photo",
-        description="Development environment bootstrap and offline HEIC candidate discovery.",
+        description="Offline HEIC dashboard processing and candidate discovery.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command")
     discovery = commands.add_parser("discover", help="list HEIC filename candidates as JSON")
     discovery.add_argument("source", metavar="SOURCE", type=Path, help="local source directory")
+    processing = commands.add_parser("process", help="organize dashboard originals and append monthly trip JSON")
+    processing.add_argument("source", metavar="SOURCE", type=Path)
+    processing.add_argument("--destination", required=True, type=Path)
+    processing.add_argument("--json-output", required=True, type=Path)
+    processing.add_argument("--window-seconds", default=180.0, type=float)
+    processing.add_argument("--tesseract", required=True, type=Path)
+    processing.add_argument("--tessdata", required=True, type=Path)
+    processing.add_argument("--tesseract-sha256", required=True)
     arguments = parser.parse_args(argv)
+    if arguments.command == "process":
+        if not math.isfinite(arguments.window_seconds) or arguments.window_seconds < 0:
+            processing.error("--window-seconds must be finite and nonnegative")
+        try:
+            window = timedelta(seconds=arguments.window_seconds)
+        except OverflowError:
+            processing.error("--window-seconds exceeds the supported range")
+        from .batch import process_batch
+        from .interpretation import InterpretationAssets
+        result = process_batch(arguments.source, arguments.destination, arguments.json_output,
+            assets=InterpretationAssets(arguments.tesseract, arguments.tessdata, arguments.tesseract_sha256),
+            window=window)
+        print(json.dumps(result.summary(), ensure_ascii=True))
+        sys.stdout.flush()
+        return 0 if result.complete else 1
     if arguments.command == "discover":
         try:
             candidates = discover_heic(arguments.source)
@@ -30,7 +55,7 @@ def _main(argv: Sequence[str] | None) -> int:
         print(json.dumps([path.as_posix() for path in candidates], ensure_ascii=True))
         sys.stdout.flush()
         return 0
-    print("Development environment bootstrap ready. Photo processing is unavailable.")
+    print("Offline photo processing ready. Use 'process --help' for local asset and folder options.")
     sys.stdout.flush()
     return 0
 

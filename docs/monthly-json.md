@@ -1,10 +1,10 @@
 # Monthly trip JSON
 
-**Approved design; not implemented.** This is the serialization contract for [BRD R05 and R08-R14](BRD.md), including the four readings, field names, representations, structural metadata, date and duration rules. Artifact validation remains a gate before dependent implementation. No current command emits this format.
+**Approved contract; implementation acceptance pending.** This is the serialization contract for [BRD R05 and R08-R14](BRD.md), including the four readings, field names, representations, structural metadata, date and duration rules. The developing batch command emits this format; synthetic composition tests do not establish final OCR or recovery acceptance.
 
 ## File, captures and trip date
 
-Write one `YYYY-MM.json` per assigned month, with exactly `schema_version` (integer `1`), `month` (`YYYY-MM`) and `trips` (array). Each trip appears once in one month. Existing entries remain unchanged; append new disjoint trips, skip exact repeats and report overlaps according to the BRD. Identity and recovery mechanisms remain [separate design gates](delivery-plan.md#incremental-output-and-recovery).
+Write one `YYYY-MM.json` per assigned month, with exactly `schema_version` (integer `1`), `month` (`YYYY-MM`) and `trips` (array). Each trip appears once in one month. Existing entries remain unchanged; append new disjoint trips, skip exact repeats and report overlaps according to the BRD. The delivery plan defines [identity and overlap reconciliation](delivery-plan.md#repeat-identity-and-overlap-reconciliation) and [recovery](delivery-plan.md#durable-effects-and-safe-resume).
 
 Each trip has exactly `trip_date`, `first_capture_times`, `last_capture_times`, `month_assignment` and `fields`. Public JSON contains no photo paths, hashes, per-field provenance or generated trip ID.
 

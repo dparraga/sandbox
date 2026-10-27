@@ -26,3 +26,7 @@
 !tests/assets/
 !tests/assets/interpretation-candidates.json
 !tests/assets/synthetic-white.heic
+
+!src/flex_photo/interpretation.py
+!src/flex_photo/_interpretation_worker.py
+!src/flex_photo/batch.py

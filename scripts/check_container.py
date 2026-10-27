@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 from metadata_fixture import heif_metadata, huge_header_read
 
 
-def run(command, expected=0):
-    result = subprocess.run(command, text=True, capture_output=True, timeout=60, check=False)
+def run(command, expected=0, timeout=60):
+    result = subprocess.run(command, text=True, capture_output=True, timeout=timeout, check=False)
     print(result.stdout, end="")
     print(result.stderr, end="")
     if result.returncode != expected:
@@ -33,7 +33,7 @@ def main():
         else:
             assert not result.stderr
             if not options:
-                assert "bootstrap" in result.stdout.lower() and "unavailable" in result.stdout.lower()
+                assert "process --help" in result.stdout
             elif options == ["--version"]:
                 assert result.stdout.strip() == "flex-photo 0.1.0"
             else:
@@ -115,6 +115,21 @@ print('installed metadata extraction, capture-time conversion, grouping, selecti
                       "import os,sys,importlib.util; assert os.getuid()!=0; "
                       "assert importlib.util.find_spec('setuptools') is None; "
                       "print(sys.version); print('uid:',os.getuid())"])
+    tests = Path(__file__).resolve().parents[1] / "tests"
+    run(restricted + ["--memory", "1g", "--cpus", "2",
+        "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m,mode=1777",
+        "--mount", f"type=bind,source={tests},target=/tests,readonly",
+        "--entrypoint", "python", args.image, "-c", """
+import hashlib, os, pathlib, sys, unittest
+os.environ['FLEX_PHOTO_TESSERACT'] = '/usr/bin/tesseract'
+os.environ['FLEX_PHOTO_TESSDATA'] = '/opt/flex-photo-models'
+os.environ['FLEX_PHOTO_TESSERACT_SHA256'] = hashlib.sha256(pathlib.Path('/usr/bin/tesseract').read_bytes()).hexdigest()
+os.environ['FLEX_PHOTO_REQUIRE_NATIVE_TESTS'] = '1'
+sys.path.insert(0, '/tests/integration')
+suite = unittest.defaultTestLoader.loadTestsFromNames(['test_interpretation', 'test_batch'])
+result = unittest.TextTestRunner(verbosity=2).run(suite)
+raise SystemExit(not result.wasSuccessful())
+"""], timeout=300)
 
 
 if __name__ == "__main__":

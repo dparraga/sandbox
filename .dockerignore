@@ -17,3 +17,16 @@
 !README.md
 !container/
 !container/Dockerfile
+
+# Public candidate-validation helper only; no private fixtures or local audit assets.
+!container/ArtifactAudit.Dockerfile
+!scripts/
+!scripts/check_interpretation_assets.py
+!tests/
+!tests/assets/
+!tests/assets/interpretation-candidates.json
+!tests/assets/synthetic-white.heic
+
+!src/flex_photo/interpretation.py
+!src/flex_photo/_interpretation_worker.py
+!src/flex_photo/batch.py

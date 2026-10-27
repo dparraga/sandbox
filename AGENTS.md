@@ -5,7 +5,7 @@
 - Lead is the user's communication point. Keep scope simple; ask about ambiguity and do not add features.
 - Read the active feature's ignored state and approved contract before work. Stay within its recorded approval; proposals are not approvals.
 - Business requirements live in [BRD](docs/BRD.md), technical requirements in [TRD](docs/TRD.md), and implementation design in the referenced design documents. The project's own code and documentation use MIT; preserve all third-party licenses, attribution and notices.
-- Work on one feature at a time, always on a feature branch. Inspect status, remotes, base and existing changes first. Never bypass an absent usable base; coordinate initialization with the user.
+- Work on one feature at a time, always on a feature branch, unless the user explicitly authorizes combining approved features on one integration branch and PR. Record that exception and its scope in ignored local state; it does not expand product requirements. Inspect status, remotes, base and existing changes first. Never bypass an absent usable base; coordinate initialization with the user.
 - Preserve unrelated files and changes. Do not fabricate photos, readings, results, approvals, or operational capabilities.
 
 ## Roles and delegation
@@ -23,7 +23,7 @@ Use separate background workers where supported; verify capability each environm
 2. After approval, Implementation codes the approved feature while Testing plans tests in parallel. Documentation stays synchronized. Tests run as soon as applicable code is runnable.
 3. Every feature, including documentation, needs independent review before PR creation. Resolve findings, recheck, and run applicable local tests before creating the PR. State accurately what ran and what remains planned.
 4. Lead routes PR comments; corrections stay on the same branch; affected tests rerun; Review rechecks before pushing corrections. Review evaluates every comment for missed checks and records reusable lessons in `docs/review-guidance.md`, without promoting every preference into a requirement.
-5. Never merge automatically. A feature completes only after its PR is verified merged into base. Do not start the next feature until its temporary state is cleaned up.
+5. Never merge automatically. A feature completes only after its PR is verified merged into base. Do not start the next feature until its temporary state is cleaned up, except work included in an explicitly authorized integrated delivery.
 
 ## Local state and safe resume
 

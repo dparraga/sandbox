@@ -1,6 +1,6 @@
 # Setup and execution
 
-Install the `flex-photo` console application on CPython 3.13 or 3.14. Its CLI provides bootstrap readiness/help/version and [HEIC candidate discovery](heic-discovery.md); the package also provides the internal [capture metadata reader](capture-metadata.md), [capture-time converter](capture-time.md), [trip grouper](trip-grouping.md) and [field-candidate selector](field-selection.md). Future imaging/native dependencies need separate compatibility and license validation.
+Install the `flex-photo` console application on CPython 3.13 or 3.14. It provides [HEIC discovery](heic-discovery.md) and an integrated `process` command using separately provisioned upstream native/OCR assets. The [user guide](user-guide.md) describes processing options and asset provisioning.
 
 ## Windows setup
 
@@ -18,9 +18,9 @@ py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-The version output is `flex-photo 0.1.0`. The default command prints `Development environment bootstrap ready. Photo processing is unavailable.` Unknown arguments fail with exit code 2. The `discover SOURCE` subcommand inventories candidate paths; there are no destination or OCR options. Rebuild and reinstall the wheel after package changes; use `--force-reinstall` on the install command when testing an updated wheel with the same version. The test acceptance path is wheel installation, not imports from the source tree.
+The version output is `flex-photo 0.1.0`. With no arguments, the command points to `process --help`; it does not process files. Unknown arguments fail with exit code 2. `discover SOURCE` inventories candidate paths; `process --help` lists explicit folder and OCR options. Rebuild and reinstall the wheel after package changes; use `--force-reinstall` when installing an updated wheel with the same version. Acceptance uses wheel installation, not imports from the source tree.
 
-Provisioning the hash-pinned setuptools backend and ExifRead runtime dependency needs package-index access. The application wheel build/install commands above use provisioned assets and `--no-index`; `--no-deps` requires installing `requirements-runtime.txt` first. `pip` comes with the selected environment. No imaging codecs or models are required for the implemented CLI/libraries. One-time online provisioning is allowed; processing must then work offline. Exact future decoder/OCR downloads, hashes, license notices and model setup/verification commands remain gated by artifact validation in the [delivery plan](delivery-plan.md#dependency-compatibility-and-offline-gates); no OCR installation or offline-processing success is claimed.
+Provisioning the hash-pinned build/runtime dependencies needs package-index access. The wheel build/install commands use provisioned assets and `--no-index`; `--no-deps` requires installing `requirements-runtime.txt` first. `pip` comes with the environment. Discovery needs no OCR assets; processing needs the [local engine/model setup](user-guide.md#install-on-windows). One-time online provisioning is allowed; processing then uses local assets offline. Artifact-entry review has passed under the [recorded constraints](offline-photo-interpretation.md); candidate probes do not establish full application acceptance. Our source/wheel/source Dockerfiles do not convey a native wheelhouse, portable OCR bundle or prebuilt image. Retain upstream licenses/notices; binary redistribution requires a separate assessment.
 
 On Linux, create `.venv` using `python3 -m venv .venv`; replace `.\.venv\Scripts\python.exe` with `.venv/bin/python` and the console path with `.venv/bin/flex-photo`. The checked-in CI exercises Windows and Ubuntu on Python 3.13/3.14.
 
@@ -54,7 +54,7 @@ docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-
 docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges flex-photo:bootstrap --version
 ```
 
-`podman` can replace `docker` for these commands; local Podman execution has not been validated. The multi-stage image pins the official Python 3.13 base digest, builds a wheel, and runs the installed CLI as numeric user `10001:10001`. Build needs access to the base-image registry and pinned build/runtime dependencies; runtime checks disable networking. No ports or photo mounts are needed. The context excludes local photos/state, Git, tests and generated reports. These commands exercise readiness/help/version; the automated helper below also checks candidate discovery and installed metadata extraction. They do not establish HEIC decoding/OCR. Exact CI validation status belongs in the feature PR.
+`podman` can replace `docker` for these commands; local Podman execution has not been validated. The multi-stage source Dockerfile defaults to the pinned official Python 3.13 bookworm image, builds a wheel and provisions the reviewed bookworm OCR engine and hash-verified model. CI also builds the pinned 3.14 base through `PYTHON_IMAGE`. Runtime uses numeric user `10001:10001`. Builds need registry/dependency/model access; processing then uses local assets. No ports are needed. The context allowlists application files and public artifact-probe fixtures, excluding private photos/state, Git and generated reports. The commands above exercise readiness/help/version; they do not establish dashboard OCR accuracy. Latest-head CI evidence belongs in the PR.
 
 For automated CLI, discovery, installed metadata and numeric nonroot checks after the image build:
 
@@ -62,10 +62,28 @@ For automated CLI, discovery, installed metadata and numeric nonroot checks afte
 .\.venv\Scripts\python.exe scripts/check_container.py flex-photo:bootstrap
 ```
 
-The helper mounts disposable public filesystem and metadata-only fixtures read-only. It checks candidate JSON, invalid-source behavior, installed-library capture extraction, time conversion, grouping and field-candidate selection, a huge-header guard failure, and the pinned ExifRead version and retained license. It verifies source bytes remain unchanged; the fixtures establish no image decodability. It invokes Docker; a Podman-specific helper has not been provided. An unavailable local engine prevents local container validation. Latest-head container evidence belongs in the feature PR; native test success does not substitute for actual restricted container execution.
+The helper mounts disposable public fixtures and tests read-only. It checks candidate inventory, metadata/time/grouping/selection composition, parser guards and dependency notice retention, then runs installed interpretation and batch integration with local engine/model assets. Native tests use `--memory 1g` and a bounded writable `/tmp`; networking remains disabled, root remains read-only and execution nonroot. Corrupt/blank HEIC checks and resource/lock tests establish mechanics rather than real-dashboard accuracy. The helper invokes Docker; a Podman-specific helper has not been provided. An unavailable engine prevents local validation. Record actual container results separately from native tests and candidate probes.
 
 ## Validation and acceptance
 
-Environment acceptance requires wheel installation on supported Windows/Linux runtimes, correct installed CLI/module behavior outside the source root, unit/integration results, accurately labeled repeated startup measurements, successful container smoke checks and independent review. The [testing plan](testing-plan.md) separates this coverage from future processing tests. [GitHub automation](github-test-automation.md) describes CI checks and reports.
+Environment acceptance requires wheel installation on supported Windows/Linux runtimes, correct installed CLI/module behavior outside the source root, unit/integration results, accurately labeled repeated startup measurements, successful container smoke checks and independent review. The [testing plan](testing-plan.md) separates this coverage from integrated application acceptance. [GitHub automation](github-test-automation.md) describes CI checks and reports.
 
 Setup outputs `.venv/`, `build/`, `dist/` and generated reports are ignored. Do not commit them or `.agent-state/`. Private `sample-pictures/` originals and inventory are unrelated to bootstrap tests; preserve them through cleanup.
+
+## WSL 2 for Linux validation
+
+In an elevated PowerShell window, run `wsl --install --distribution Ubuntu --no-launch`. Save work and restart Windows if the installer requests it; the project never restarts the laptop automatically. After restarting, run the same install command if Ubuntu is not yet listed, then launch `wsl --distribution Ubuntu` and complete its Linux account setup. Verify `wsl --list --verbose` shows Ubuntu using version 2. Follow [Microsoft's installation guide](https://learn.microsoft.com/en-us/windows/wsl/install) if the machine reports missing virtualization support after the restart.
+
+Verify read access to this checkout with `wsl --distribution Ubuntu -- test -r /mnt/c/Parraga/Code/sandbox/AGENTS.md`, adjusting the path for another checkout. Keep Windows and Linux build environments separate. Do not run source-writing agents simultaneously against the same files from both operating systems, reuse the Windows virtual environment in Linux, or send private samples to CI. Install Linux/container tooling only after WSL is operational. Record WSL-native, WSL-container and hosted CI results separately; WSL installation alone does not validate the application.
+
+For Ubuntu validation, install the distro engine and Python environment tooling inside WSL:
+
+```sh
+sudo apt-get update
+sudo apt-get install --no-install-recommends docker.io python3-venv
+sudo systemctl start docker
+sudo docker version
+python3 --version
+```
+
+These use [Ubuntu's Docker package](https://ubuntu.com/server/docs/how-to/containers/docker-for-system-admins/), not Docker Desktop. Choose a supported Python 3.13/3.14 interpreter for the application environment. Create a separate Linux virtual environment; then use the hash-pinned setup requirements above. The source Dockerfile retains the reviewed bookworm OCR version even when the host Ubuntu version differs. The container helper uses Docker and accepts the image tag as its argument; run it under a user with engine access, using `sudo` where needed.

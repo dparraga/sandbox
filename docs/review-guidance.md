@@ -26,3 +26,5 @@ Apply each category proportionately and record exclusions with reasons. Check in
 Lead assigns each PR comment to the relevant role. Correct code, tests, or documentation on the same feature branch, rerun affected tests, and obtain Review's independent evaluation of corrections before pushing. Lead coordinates responses and verifies resolution.
 
 Review evaluates every PR comment for something missed. When a comment reveals a reusable gap, update this tracked document with the lesson and an improved check. Distinguish a confirmed requirement or defect from an optional preference; do not promote every preference into a requirement. Link the real PR/comment and evidence when available. Temporary investigation and raw reports remain in ignored local state.
+
+- When CLI readiness text changes, search its consumers, including performance and container helpers, and run the affected installed checks. Passing unit/integration suites can miss stale benchmark assertions, as [PR 8](https://github.com/dparraga/sandbox/pull/8) and [CI run 40538084077](https://github.com/dparraga/sandbox/actions/runs/40538084077) showed.

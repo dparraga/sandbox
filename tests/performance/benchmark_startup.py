@@ -25,10 +25,10 @@ def measure(output: Path, repetitions: int = 10) -> None:
             result = subprocess.run(command, cwd=directory, env=environment, capture_output=True,
                                     text=True, timeout=15, check=False)
             elapsed = time.perf_counter() - started
-            if result.returncode != 0 or result.stderr or "bootstrap" not in result.stdout.lower() or "unavailable" not in result.stdout.lower():
-                raise RuntimeError("Installed bootstrap command did not return expected readiness output")
+            if result.returncode != 0 or result.stderr or "process --help" not in result.stdout:
+                raise RuntimeError("Installed CLI did not return the expected processing readiness hint")
             if list(Path(directory).iterdir()):
-                raise RuntimeError("Bootstrap command created files")
+                raise RuntimeError("Default CLI command created files")
             if iteration:
                 samples.append(elapsed * 1000)
     report = {

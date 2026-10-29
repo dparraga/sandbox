@@ -856,7 +856,7 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
         config = {"roots": roots, "window_microseconds": window // timedelta(microseconds=1),
                   "executable": str(assets.tesseract_executable.absolute()),
                   "tessdata": str(assets.tessdata_directory.absolute()),
-                  "executable_sha256": assets.executable_sha256, "recipe_version": 2}
+                  "executable_sha256": assets.executable_sha256, "recipe_version": 3}
         saved = (output / ".flex-photo-checkpoint").exists()
         if saved or not state["pending"]:
             recovering = bool(state["pending"])

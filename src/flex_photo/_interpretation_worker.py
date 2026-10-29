@@ -195,6 +195,38 @@ def _decode(path):
     return primary.to_pillow().convert("RGB")
 
 
+def _crosses_reading_edge(image, bounds, component):
+    """A selected glyph continuing outside its reading crop is incomplete."""
+    x0, y0, x1, y1 = bounds
+    left, top, right, bottom = component
+    strips = []
+    if left == 0:
+        if x0 == 0:
+            return True
+        strips.append(((x0 - 1, y0 + top, x0 + 1, y0 + bottom), True))
+    if right == x1 - x0:
+        if x1 == image.width:
+            return True
+        strips.append(((x1 - 1, y0 + top, x1 + 1, y0 + bottom), True))
+    if top == 0:
+        if y0 == 0:
+            return True
+        strips.append(((x0 + left, y0 - 1, x0 + right, y0 + 1), False))
+    if bottom == y1 - y0:
+        if y1 == image.height:
+            return True
+        strips.append(((x0 + left, y1 - 1, x0 + right, y1 + 1), False))
+    for box, vertical in strips:
+        strip = image.crop(box).convert("L")
+        pixels = strip.load()
+        if vertical:
+            if any(pixels[0, y] > 190 and pixels[1, y] > 190 for y in range(strip.height)):
+                return True
+        elif any(pixels[x, 0] > 190 and pixels[x, 1] > 190 for x in range(strip.width)):
+            return True
+    return False
+
+
 def _segment_reading(image, bounds):
     """Separate numeric and smaller unit glyphs within one requested reading."""
     crop = image.crop(bounds)
@@ -202,7 +234,7 @@ def _segment_reading(image, bounds):
         raise ValueError("crop pixel limit exceeded")
     gray = crop.convert("L")
     data = bytearray(gray.point(lambda value: 255 if value > 190 else 0).tobytes())
-    components = []
+    components, marks = [], []
     width, height = crop.size
     for start in range(len(data)):
         if not data[start]:
@@ -220,8 +252,12 @@ def _segment_reading(image, bounds):
                     if data[neighbor]:
                         data[neighbor] = 0
                         stack.append(neighbor)
-        if len(xs) >= 15 and max(xs) - min(xs) >= 3 and max(ys) - min(ys) >= 5:
-            components.append((min(xs), min(ys), max(xs) + 1, max(ys) + 1))
+        if len(xs) >= 15 and max(xs) - min(xs) >= 3:
+            box = (min(xs), min(ys), max(xs) + 1, max(ys) + 1)
+            if max(ys) - min(ys) >= 5:
+                components.append(box)
+            elif box[2] - box[0] >= 2 * (box[3] - box[1]):
+                marks.append(box)
     candidates = [c for c in components if 8 <= c[3] - c[1] < height * .8
                   and .12 <= (c[2] - c[0]) / (c[3] - c[1]) <= 1.3]
     clusters = []
@@ -235,8 +271,22 @@ def _segment_reading(image, bounds):
     if not numeric:
         return None
     glyph_height = median(c[3] - c[1] for c in numeric)
+    left = min(c[0] for c in numeric)
     edge = max(c[2] for c in numeric)
     top, bottom = min(c[1] for c in numeric), max(c[3] for c in numeric)
+    # A height/cluster filter must never silently remove a leading digit or sign.
+    for component in components + marks:
+        c0, c1, c2, c3 = component
+        if c2 <= left and left - c2 <= glyph_height:
+            overlap = min(c3, bottom) - max(c1, top)
+            if (c3 - c1 >= glyph_height * .5
+                    and overlap >= min(c3 - c1, glyph_height) * .5):
+                return None
+            if (c2 - c0 >= 2 * (c3 - c1)
+                    and top + glyph_height * .25 <= (c1 + c3) / 2 <= bottom - glyph_height * .25):
+                return None
+    if any(_crosses_reading_edge(image, bounds, component) for component in numeric):
+        return None
     units = [c for c in components if edge <= c[0] < edge + glyph_height * 3
              and glyph_height * .15 <= c[3] - c[1] <= glyph_height * 1.2
              and c[2] - c[0] < glyph_height * 1.3
@@ -387,13 +437,41 @@ def _ocr(image, bounds, assets, folder, psm="7", kind="anchor"):
     return tuple(results)
 
 
+def _title_glyph_count(small, bounds):
+    """Reject short glyph groups before any title OCR, using undilated ink."""
+    pixels = small.load()
+    left, top, right, bottom = bounds
+    points = {(x, y) for y in range(max(0, top), min(small.height, bottom))
+              for x in range(max(0, left), min(small.width, right))
+              if min(pixels[x, y]) > 155 and max(pixels[x, y]) - min(pixels[x, y]) < 80}
+    heights = []
+    while points:
+        point = points.pop()
+        stack = [point]
+        low = high = point[1]
+        area = 0
+        while stack:
+            x, y = stack.pop()
+            area += 1
+            low, high = min(low, y), max(high, y)
+            for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if neighbor in points:
+                    points.remove(neighbor)
+                    stack.append(neighbor)
+        if area >= 2:
+            heights.append(high - low + 1)
+    # Detached dots must not make a four-digit clock look like a title.
+    threshold = median(heights) * .5 if heights else 0
+    return sum(height >= threshold for height in heights)
+
+
 def _title_components(image):
     """Locate white title-shaped glyph groups geometrically, without panel OCR."""
     small = image.resize((800, 600))
     pixels = small.load()
     mask = bytearray(800 * 600)
     for y in range(90, 340):
-        for x in range(340, 650):
+        for x in range(340, 700):
             r, g, b = pixels[x, y]
             if min(r, g, b) > 155 and max(r, g, b) - min(r, g, b) < 80:
                 mask[y * 800 + x] = 255
@@ -430,7 +508,9 @@ def _title_components(image):
         width, height = right - left - 14, bottom - top
         if 10 <= height <= 40 and ((65 <= width <= 110 and 3 <= width / height <= 8)
                                   or (140 <= width <= 220 and 4 <= width / height <= 10)):
-            boxes.append((left + 5, top - 3, right - 4, bottom + 4))
+            bounds = (left + 5, top - 3, right - 4, bottom + 4)
+            if _title_glyph_count(small, bounds) >= 8:
+                boxes.append(bounds)
     return boxes
 
 
@@ -540,7 +620,9 @@ def _interpret(image, assets, folder):
             numeric_bounds = (cut, y0, x1, y1)
         expected_label = _LABELS[field]
         associated = not expected_label or all(text == expected_label or text.startswith(expected_label + " ")
-                                              or text.startswith(expected_label + ".") for text in label)
+                                              or text.startswith(expected_label + ".")
+                                              or re.fullmatch(re.escape(expected_label) + r"[^\w\s]+", text) is not None
+                                              for text in label)
         if expected_label and associated:
             label_ok.add(field)
         unit_bounds = None

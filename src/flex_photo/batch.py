@@ -1,16 +1,20 @@
 """Offline batch composition and hash-verified, recoverable local effects."""
 
-from contextlib import contextmanager
-from dataclasses import dataclass
+from contextlib import contextmanager, ExitStack
+from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import stat
 import sys
+import time
+import signal
+import threading
 import uuid
 
 from .capture_time import CaptureTimeError, parse_capture_time
@@ -20,6 +24,10 @@ from .interpretation import (InterpretationAssets, SharedAssetError, interpret_p
                              validate_interpretation_assets as _validate_assets)
 from .selection import latest_clear_indices
 from .metadata import CaptureMetadata
+from .interpretation import PhotoInterpretation, FieldObservation, InterpretationIssue
+from .checkpoint import Checkpoint, _sync_directory
+from .progress import Progress
+from .diagnostics import Diagnostics
 
 _FIELDS = ("trip_distance", "trip_duration", "trip_average_mpg", "odometer")
 _STATE = ".flex-photo-state.json"
@@ -31,6 +39,14 @@ class BatchError(Exception):
 
 class ClearConflict(BatchError):
     pass
+
+
+class PublishedCleanupError(BatchError):
+    """Publication succeeded; an owned sibling remains for cleanup."""
+
+    def __init__(self, temporary):
+        self.temporary = temporary
+        super().__init__("verified output saved; temporary cleanup failed")
 
 
 @dataclass(frozen=True)
@@ -132,6 +148,7 @@ def _atomic_write(path: Path, data: bytes, expected: str | None) -> None:
     if _actual_hash(path) != expected:
         raise BatchError("output changed unexpectedly")
     temporary = path.with_name(".flex-write-" + uuid.uuid4().hex)
+    published = False
     try:
         with temporary.open("xb") as stream:
             stream.write(data)
@@ -144,11 +161,23 @@ def _atomic_write(path: Path, data: bytes, expected: str | None) -> None:
             os.link(temporary, path)
         else:
             os.replace(temporary, path)
+        published = True
+        _sync_directory(path.parent)
     finally:
-        try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
+        deadline = time.monotonic() + 1
+        while True:
+            try:
+                temporary.unlink()
+                break
+            except FileNotFoundError:
+                break
+            except OSError as error:
+                if os.name == "nt" and getattr(error, "winerror", None) in (5, 32, 33) and time.monotonic() < deadline:
+                    time.sleep(.02)
+                    continue
+                if published and _actual_hash(path) == _hash_bytes(data):
+                    raise PublishedCleanupError(temporary.name) from error
+                raise
 
 
 @contextmanager
@@ -188,24 +217,62 @@ class _Report:
                                  "repeats": 0, "skipped": 0, "moved": 0, "trips": 0}, "issues": []}
         self.expected = None
         self.saved = False
+        self.last_write = 0.0
+        self.last_error = None
+        self._issues = set()
         self.write()
 
     def write(self):
         try:
+            aggregates = {}
+            for issue in self.value["issues"]:
+                key = (issue.get("stage", "processing"), issue["issue"])
+                aggregates[key] = aggregates.get(key, 0) + 1
+            self.value["issue_summary"] = [{"stage": stage, "issue": reason, "count": count}
+                for (stage, reason), count in sorted(aggregates.items())]
             data = _json_bytes(self.value)
-            _atomic_write(self.path, data, self.expected)
+            try:
+                _atomic_write(self.path, data, self.expected)
+            except PublishedCleanupError as error:
+                # Never leave a stale expected identity after verified publication.
+                self.expected = _hash_bytes(data)
+                self.saved = True
+                self.issue(error.temporary, str(error), "preserve owned temporary; inspect filesystem", stage="report")
+                raise
+            if _actual_hash(self.path) != _hash_bytes(data):
+                raise BatchError("run report verification failed")
             self.expected = _hash_bytes(data)
             self.saved = True
-        except (OSError, ValueError, BatchError):
-            self.saved = False
-            print("report-failed: unable to save run report", file=sys.stderr)
+            self.last_write = time.monotonic()
+        except (OSError, ValueError, TypeError, BatchError) as error:
+            try:
+                self.saved = bool('data' in locals() and _actual_hash(self.path) == _hash_bytes(data))
+            except (OSError, BatchError):
+                self.saved = False
+            if self.saved:
+                self.expected = _hash_bytes(data)
+            if isinstance(error, OSError):
+                reason = f"{type(error).__name__} (errno={error.errno}, winerror={getattr(error, 'winerror', None)})"
+            elif isinstance(error, BatchError):
+                reason = str(error)
+            else:
+                reason = type(error).__name__ + " during JSON serialization"
+            if reason != self.last_error:
+                print("report-failed: " + reason, file=sys.stderr)
+                self.last_error = reason
             raise BatchError("run report unavailable") from None
 
-    def issue(self, item, reason, action, *, incomplete=True):
-        self.value["issues"].append({"item": str(item), "issue": reason, "action": action})
+    def issue(self, item, reason, action, *, incomplete=True, stage="processing"):
+        key = (str(item), reason, action, stage)
+        if key not in self._issues:
+            self._issues.add(key)
+            self.value["issues"].append({"item": str(item), "issue": reason, "action": action, "stage": stage})
         if incomplete:
             self.value["status"] = "incomplete"
-        self.write()
+
+    def flush_due(self):
+        if time.monotonic() - self.last_write >= 30:
+            self.write()
 
 
 def _reading(observation, field):
@@ -519,7 +586,11 @@ def _save_state(output: Path, state: dict, expected: list[str | None]) -> None:
     if state["pending"]:
         _check_roots(state["pending"]["roots"])
     data = _json_bytes(state)
-    _atomic_write(output / _STATE, data, expected[0])
+    try:
+        _atomic_write(output / _STATE, data, expected[0])
+    except PublishedCleanupError:
+        expected[0] = _hash_bytes(data)
+        raise
     expected[0] = _hash_bytes(data)
 
 
@@ -542,19 +613,21 @@ def _reserve(destination: Path, name: str, reserved: set[str]) -> str:
     return candidate
 
 
-def _execute_plan(output: Path, state: dict, expected: list[str | None], report: _Report, *, recovery: bool) -> None:
+def _execute_plan(output: Path, state: dict, expected: list[str | None], report: _Report, *, recovery: bool, boundary=lambda: None) -> None:
     plan = state["pending"]
     _check_roots(plan["roots"])
     source = Path(plan["roots"]["source"]["path"])
     destination = Path(plan["roots"]["destination"]["path"])
     reserved = {file["destination"] for trip in plan["trips"] for file in trip["files"]}
     for trip in list(plan["trips"]):
+        boundary()
         try:
             if any(other is not trip and other["month"] == trip["month"] and "publication" in other
                    for other in plan["trips"]):
                 raise BatchError("another publication for this month is pending; preserve dependent sources until recovery")
             _guard_month(output, state, trip)
             for file in trip["files"]:
+                boundary()
                 _check_roots(plan["roots"])
                 _guard_month(output, state, trip)
                 origin = source / file["source"]
@@ -637,7 +710,7 @@ def _execute_plan(output: Path, state: dict, expected: list[str | None], report:
             plan["trips"].remove(trip)
             _save_state(output, state, expected)
             report.value["counts"]["trips"] += 1
-            report.write()
+            report.flush_due()
         except Exception as error:
             reason = str(error) if isinstance(error, BatchError) else "trip movement or publication failed"
             report.issue(trip["files"][0]["source"], reason, "preserve originals, verified copies and pending state; rerun for recovery")
@@ -650,49 +723,210 @@ def _execute_plan(output: Path, state: dict, expected: list[str | None], report:
         _save_state(output, state, expected)
 
 
-def process_batch(source: Path, destination: Path, output: Path, *, assets: InterpretationAssets,
-                  window: timedelta = timedelta(minutes=3)) -> BatchResult:
-    """Interpret/preflight first, then apply only verified recoverable effects."""
-    report = None
+class _Paused(BaseException):
+    pass
+
+
+class _CheckpointFailure(BatchError):
+    pass
+
+
+def _checkpoint_photo(checkpoint, relative, digest, interpreted, timing):
+    try:
+        checkpoint.append(relative, digest, _compact_interpretation(interpreted), timing)
+    except (OSError, ValueError) as error:
+        raise _CheckpointFailure("unable to save extraction checkpoint (" + type(error).__name__ + "); resume required") from error
+
+
+def _compact_interpretation(value):
+    return {"layout": value.layout,
+            "observations": [{"field_id": item.field_id, "status": item.status,
+                              "value": item.value, "unit": item.unit} for item in value.observations],
+            "metadata": asdict(value.metadata) if value.metadata is not None else None,
+            "issues": [{"reason": item.reason, "action": item.action} for item in value.issues]}
+
+
+def _restore_interpretation(path, value):
+    """Validate cached extraction data before it can reach output planning."""
+    if not isinstance(value, dict) or set(value) != {"layout", "observations", "metadata", "issues"}:
+        raise BatchError("invalid cached interpretation")
+    if value["layout"] not in ("trip_summary", "drive_info", "nonmatch", "unresolved"):
+        raise BatchError("invalid cached layout")
+    observations = []
+    seen = set()
+    for item in value["observations"]:
+        if (not isinstance(item, dict) or set(item) != {"field_id", "status", "value", "unit"}
+                or item["field_id"] not in _FIELDS or item["field_id"] in seen
+                or item["status"] not in ("clear", "unclear", "absent")
+                or item["value"] is not None and not isinstance(item["value"], str)
+                or item["unit"] is not None and not isinstance(item["unit"], str)):
+            raise BatchError("invalid cached field")
+        seen.add(item["field_id"])
+        observation = FieldObservation(**item)
+        if observation.status == "clear" and _reading(observation, observation.field_id) is None:
+            raise BatchError("invalid cached clear reading")
+        if observation.status != "clear" and (observation.value is not None or observation.unit is not None):
+            raise BatchError("invalid unavailable cached reading")
+        observations.append(observation)
+    metadata = value["metadata"]
+    if metadata is not None:
+        if (not isinstance(metadata, dict) or set(metadata) != {"date_time_original", "offset_time_original", "subsec_time_original"}
+                or any(item is not None and not isinstance(item, str) for item in metadata.values())):
+            raise BatchError("invalid cached original metadata")
+        metadata = CaptureMetadata(**metadata)
+    issues = []
+    for item in value["issues"]:
+        if not isinstance(item, dict) or set(item) != {"reason", "action"} or any(not isinstance(v, str) for v in item.values()):
+            raise BatchError("invalid cached issue")
+        issues.append(InterpretationIssue(path, item["reason"], item["action"]))
+    return PhotoInterpretation(path, value["layout"], tuple(observations), metadata, issues=tuple(issues))
+
+
+@contextmanager
+def _pause_handler(event, progress):
+    previous = None
+    installed = threading.current_thread() is threading.main_thread()
+    if installed:
+        previous = signal.getsignal(signal.SIGINT)
+        def pause(signum, frame):
+            event.set()
+            progress.status = "pausing"
+        signal.signal(signal.SIGINT, pause)
+    try:
+        yield
+    finally:
+        if installed:
+            signal.signal(signal.SIGINT, previous)
+
+
+def _timing(value):
+    result = {}
+    for key in ("active_seconds", "processed_seconds", "processed_count"):
+        item = value.get(key, 0)
+        if (isinstance(item, bool) or not isinstance(item, (float, int)) or not math.isfinite(item)
+                or item < 0 or key == "processed_count" and type(item) is not int):
+            raise BatchError("invalid checkpoint timing")
+        result[key] = item
+    return result
+
+
+def _replay_checkpoint_issues(checkpoint, report):
+    for relative, item in checkpoint.results.items():
+        result = item["result"]
+        for issue in result["issues"]:
+            report.issue(relative, issue["reason"], issue["action"], incomplete=result["layout"] == "unresolved", stage="interpretation")
+        if result["layout"] in ("trip_summary", "drive_info"):
+            try:
+                if result["metadata"] is None:
+                    raise ValueError()
+                parse_capture_time(CaptureMetadata(**result["metadata"]))
+            except (CaptureTimeError, ValueError):
+                report.issue(relative, "original capture timestamp invalid or unavailable", "leave untouched; exclude from grouping", stage="metadata")
+
+
+def _process_batch(source: Path, destination: Path, output: Path, *, ownership, assets: InterpretationAssets,
+                  window: timedelta = timedelta(minutes=3), resume=False, display_progress=False,
+                  pause_event=None, diagnostics=False) -> BatchResult:
+    """Interpret/checkpoint each safe unit before verified recoverable effects."""
+    report = checkpoint = progress = None
     counts = {}
+    event = pause_event if pause_event is not None else threading.Event()
+    paused = False
+    started_run = time.monotonic()
     try:
         if not isinstance(window, timedelta) or window < timedelta(0):
             raise BatchError("window must be a nonnegative timedelta")
         source, destination, output = _roots(source, destination, output)
+        diagnostic_log = Diagnostics(output, enabled=diagnostics)
         report = _Report(output)
         report.value["status"] = "complete"
         counts = report.value["counts"]
-        with _output_lock(output):
-            _validate_assets(assets)
-            state, digest, invalid = _load_state(output)
-            expected = [digest]
-            for month in sorted(invalid):
-                report.issue(month, "indexed monthly output changed or is invalid", "preserve affected month; reconcile external edits")
-            roots = {key: {"path": str(path), "identity": _identity(path)} for key, path in
-                     (("source", source), ("destination", destination), ("output", output))}
+        ownership.enter_context(_output_lock(output))
+        _validate_assets(assets)
+        state, digest, invalid = _load_state(output)
+        expected = [digest]
+        for month in sorted(invalid):
+            report.issue(month, "indexed monthly output changed or is invalid", "preserve affected month; reconcile external edits")
+        roots = {key: {"path": str(path), "identity": _identity(path)} for key, path in
+                 (("source", source), ("destination", destination), ("output", output))}
+        config = {"roots": roots, "window_microseconds": window // timedelta(microseconds=1),
+                  "executable": str(assets.tesseract_executable.absolute()),
+                  "tessdata": str(assets.tessdata_directory.absolute()),
+                  "executable_sha256": assets.executable_sha256, "recipe_version": 2}
+        saved = (output / ".flex-photo-checkpoint").exists()
+        if saved or not state["pending"]:
+            recovering = bool(state["pending"])
+            if recovering and not resume:
+                config["window_microseconds"] = state["pending"]["window_microseconds"]
+            candidates = None if resume or recovering else [p.as_posix() for p in discover_heic(source)]
+            checkpoint = Checkpoint(output, config, resume=resume or recovering, candidates=candidates)
+            candidates = [Path(p) for p in checkpoint.manifest["candidates"]]
+            # Validate every saved scalar result even when effects recovery takes precedence.
+            for relative, item in checkpoint.results.items():
+                _restore_interpretation(source / relative, item["result"])
+            for item in checkpoint.history:
+                latest = checkpoint.results[item["relative"]]
+                if latest["hash"] != item["hash"]:
+                    for issue in item["result"]["issues"]:
+                        report.issue(item["relative"], "previous input version: " + issue["reason"], "superseded by changed bytes; preserve prior failure record", incomplete=False, stage="resume")
+            timing = _timing(checkpoint.timing)
+            counts["candidates"] = len(candidates)
+        else:
+            timing = {}
+            candidates = []
+            if state["pending"]["roots"] != roots:
+                raise BatchError("pending operation belongs to different folder identities")
+        timing["active_seconds"] = timing.get("active_seconds", 0.) + time.monotonic() - started_run
+        progress = Progress(len(candidates), enabled=display_progress, **timing)
+        if display_progress:
+            progress.start()
+        def boundary():
+            if event.is_set():
+                raise _Paused()
+            report.flush_due()
+            if checkpoint and progress.stage in ("recovery", "movement/publication"):
+                try:
+                    checkpoint.save(progress.snapshot())
+                except (OSError, ValueError) as error:
+                    raise _CheckpointFailure("unable to checkpoint finalization timing: " + type(error).__name__) from error
+        with _pause_handler(event, progress):
             if state["pending"]:
-                if state["pending"]["roots"] != roots:
-                    raise BatchError("pending operation belongs to different folder identities")
-                _execute_plan(output, state, expected, report, recovery=True)
+                if state["pending"]["roots"] != roots or state["pending"]["window_microseconds"] != config["window_microseconds"]:
+                    raise BatchError("pending operation configuration changed")
+                # Moved sources need not exist; the saved effect plan verifies copies.
+                if checkpoint:
+                    _replay_checkpoint_issues(checkpoint, report)
+                progress.update(evaluated=len(candidates), stage="recovery", status="completing")
+                _execute_plan(output, state, expected, report, recovery=True, boundary=boundary)
                 if state["pending"]:
                     report.value["status"] = "incomplete"
             else:
-                candidates = discover_heic(source)
-                counts["candidates"] = len(candidates)
+                progress.update(stage="hashing")
                 unique = {}
+                committed_hashes = {digest for trip in state["committed"] for digest in trip["hashes"]}
                 for relative in candidates:
+                    boundary()
                     try:
                         path = source / relative
                         _safe_path(path, source)
                         digest = _hash_file(path)
                         if digest in unique:
                             counts["duplicates"] += 1
-                            report.issue(relative, "byte-identical input copy", "leave extra copy untouched", incomplete=False)
+                            report.issue(relative, "byte-identical input copy", "leave extra copy untouched", incomplete=False, stage="discovery")
                         else:
                             unique[digest] = relative
+                    except FileNotFoundError:
+                        cached = checkpoint.results.get(relative.as_posix())
+                        if cached and cached["hash"] in committed_hashes:
+                            counts["repeats"] += 1
+                            for issue in cached["result"]["issues"]:
+                                report.issue(relative, issue["reason"], issue["action"], incomplete=False, stage="interpretation")
+                        else:
+                            counts["skipped"] += 1
+                            report.issue(relative, "source unavailable during preflight", "leave untouched; continue", stage="discovery")
                     except (OSError, BatchError):
                         counts["skipped"] += 1
-                        report.issue(relative, "source unavailable during preflight", "leave untouched; continue")
+                        report.issue(relative, "source unavailable during preflight", "leave untouched; continue", stage="discovery")
                 known = set()
                 for previous in state["committed"]:
                     supplied = set(previous["hashes"]) & unique.keys()
@@ -704,26 +938,57 @@ def process_batch(source: Path, destination: Path, output: Path, *, assets: Inte
                         for digest in sorted(supplied):
                             report.issue(unique[digest], "partial indexed trip overlap", "leave untouched for reconciliation")
                 records = []
+                evaluated = counts["duplicates"] + counts["skipped"] + counts["repeats"]
+                progress.update(evaluated=evaluated, stage="decoding/OCR")
                 for digest, relative in unique.items():
+                    boundary()
                     if digest in known:
                         continue
                     path = source / relative
+                    before_evaluated = evaluated
                     try:
                         _safe_path(path, source)
-                        interpreted = interpret_photo(path, assets)
-                        if _hash_file(path) != digest:
-                            raise BatchError("source changed during interpretation")
+                        cached = checkpoint.results.get(relative.as_posix())
+                        if cached is not None and cached["hash"] == digest:
+                            interpreted = _restore_interpretation(path, cached["result"])
+                            evaluated += 1
+                            progress.update(evaluated=evaluated)
+                        else:
+                            if cached is not None:
+                                report.issue(relative, "input changed since checkpoint", "invalidate cached readings; reprocess changed bytes", incomplete=False, stage="resume")
+                                for issue in cached["result"]["issues"]:
+                                    report.issue(relative, "previous input version: " + issue["reason"], "superseded by changed bytes; preserve prior failure record", incomplete=False, stage="resume")
+                            started = time.monotonic()
+                            interpreted = interpret_photo(path, assets, diagnostics=True) if diagnostics else interpret_photo(path, assets)
+                            diagnostic_log.record("interpretation", interpreted.diagnostic_trace)
+                            if _hash_file(path) != digest:
+                                raise BatchError("source changed during interpretation")
+                            evaluated += 1
+                            progress.record_photo(time.monotonic() - started, evaluated=evaluated)
+                            _checkpoint_photo(checkpoint, relative.as_posix(), digest, interpreted, progress.snapshot())
                         for issue in interpreted.issues:
-                            report.issue(relative, issue.reason, issue.action, incomplete=False)
+                            report.issue(relative, issue.reason, issue.action, incomplete=interpreted.layout == "unresolved", stage="interpretation")
                         if interpreted.layout == "nonmatch":
                             counts["nonmatches"] += 1
                             continue
                         if interpreted.layout not in ("trip_summary", "drive_info"):
-                            raise BatchError("individual interpretation unresolved")
+                            counts["skipped"] += 1
+                            if not interpreted.issues:
+                                report.issue(relative, "individual interpretation unresolved", "leave untouched; continue", stage="interpretation")
+                            continue
                         if interpreted.metadata is None:
-                            raise BatchError("original capture metadata unavailable")
-                        capture = parse_capture_time(interpreted.metadata)
-                        capture.astimezone(timezone.utc)  # reject unsupported UTC bounds before grouping
+                            if not interpreted.issues:
+                                report.issue(relative, "original capture metadata unavailable", "leave untouched; exclude from grouping", stage="metadata")
+                            counts["skipped"] += 1
+                            report.value["status"] = "incomplete"
+                            continue
+                        try:
+                            capture = parse_capture_time(interpreted.metadata)
+                            capture.astimezone(timezone.utc)
+                        except (CaptureTimeError, OverflowError, ValueError):
+                            counts["skipped"] += 1
+                            report.issue(relative, "original capture timestamp invalid or unavailable", "leave untouched; exclude from grouping", stage="metadata")
+                            continue
                         metadata = interpreted.metadata
                         text = metadata.date_time_original
                         spelling = text[:4] + "-" + text[5:7] + "-" + text[8:10] + "T" + text[11:]
@@ -734,9 +999,24 @@ def process_batch(source: Path, destination: Path, output: Path, *, assets: Inte
                                         "spelling": spelling, "observations": interpreted.observations})
                     except SharedAssetError:
                         raise
-                    except Exception:
+                    except _CheckpointFailure:
+                        raise
+                    except (OSError, BatchError) as error:
+                        # A failed durable checkpoint stops preflight; completed results stay recoverable.
+                        if isinstance(error, OSError) and checkpoint.results.get(relative.as_posix()) is None:
+                            raise
                         counts["skipped"] += 1
-                        report.issue(relative, "photo or original capture timestamp unavailable", "leave untouched; continue")
+                        evaluated = max(evaluated, before_evaluated + 1)
+                        progress.update(evaluated=evaluated)
+                        report.issue(relative, str(error) if isinstance(error, BatchError) else "source unavailable", "leave untouched; continue", stage="preflight")
+                    except Exception as error:
+                        counts["skipped"] += 1
+                        evaluated = max(evaluated, before_evaluated + 1)
+                        progress.update(evaluated=evaluated)
+                        report.issue(relative, "unexpected photo processing failure: " + type(error).__name__, "leave untouched; continue", stage="preflight")
+                    report.flush_due()
+                progress.update(stage="grouping", status="completing")
+                boundary()
                 groups = [[records[index] for index in group] for group in group_capture_times([item["capture"] for item in records], window)]
                 eligible = _eligible_trips(groups, state["committed"], window)
                 trips = []
@@ -759,22 +1039,41 @@ def process_batch(source: Path, destination: Path, output: Path, *, assets: Inte
                                              "temporary": ".flex-copy-" + uuid.uuid4().hex, "stage": "reserved"} for item in group]})
                 _validate_assets(assets)
                 _check_roots(roots)
+                boundary()
                 if trips:
+                    progress.update(stage="movement/publication")
                     state["pending"] = {"roots": roots, "window_microseconds": window // timedelta(microseconds=1), "trips": trips}
                     _save_state(output, state, expected)
-                    _execute_plan(output, state, expected, report, recovery=False)
+                    _execute_plan(output, state, expected, report, recovery=False, boundary=boundary)
                 if state["pending"]:
                     report.value["status"] = "incomplete"
+            progress.update(stage="report", status="completing")
+            # Remove extraction checkpoint only after all effects are durably reconciled.
+            if checkpoint and not state["pending"]:
+                report.write()
+                checkpoint.finish()
+    except _Paused:
+        paused = True
+        if progress:
+            progress.close(status="paused")
+        if checkpoint:
+            try:
+                checkpoint.save(progress.snapshot())
+            except (OSError, ValueError) as error:
+                paused = False
+                report.issue("checkpoint", "pause checkpoint save failed: " + type(error).__name__, "preserve journal; resume from last verified boundary", stage="checkpoint")
+        if report:
+            report.value["status"] = "paused" if paused else "incomplete"
     except (Exception, KeyboardInterrupt) as error:
         if report:
             report.value["status"] = "incomplete"
-            try:
-                reason = str(error) if isinstance(error, (SharedAssetError, BatchError, DiscoveryError)) else "processing stopped before further safe effects"
-                report.issue("run", reason, "preserve originals and pending evidence; inspect assets, report and output state")
-            except BatchError:
-                pass
+            reason = str(error) if isinstance(error, (SharedAssetError, BatchError, DiscoveryError, ValueError)) else "processing stopped before further safe effects (" + type(error).__name__ + ")"
+            report.issue("run", reason, "preserve originals and pending evidence; inspect report and resume with unchanged configuration", stage="run")
         else:
             print("process-failed: folders or run report unavailable", file=sys.stderr)
+    if progress:
+        progress.close(status="paused" if paused else "completed" if report.value["status"] == "complete" else "incomplete")
+        report.value["progress"] = progress.snapshot()
     if report:
         try:
             report.write()
@@ -782,3 +1081,12 @@ def process_batch(source: Path, destination: Path, output: Path, *, assets: Inte
             report.value["status"] = "incomplete"
         return BatchResult(report.value["status"], report.path if report.saved else None, dict(counts))
     return BatchResult("incomplete", None, counts)
+
+
+def process_batch(source: Path, destination: Path, output: Path, *, assets: InterpretationAssets,
+                  window: timedelta = timedelta(minutes=3), resume=False, display_progress=False,
+                  pause_event=None, diagnostics=False) -> BatchResult:
+    with ExitStack() as ownership:
+        return _process_batch(source, destination, output, ownership=ownership, assets=assets,
+                              window=window, resume=resume, display_progress=display_progress,
+                              pause_event=pause_event, diagnostics=diagnostics)

@@ -35,6 +35,10 @@ Interpretation tests distinguish mocked observation grammar from actual worker e
 | R12 | Review direct and transitive dependency/model licenses and any redistributed assets against the approved project license. Record authoritative license evidence; no paid service dependency is permitted. |
 | R13 | Exercise the complete processing path with network access disabled after documented provisioning. Verify recognition/OCR and metadata extraction make no external API calls; document model availability and loading. |
 
+## Reliability validation
+
+Exercise graceful pause after a completed photo, explicit resume without repeated OCR, changed input/configuration, retained failures, unexpected termination with a torn last append, repeated recovery and partial moves/monthly publication. Test monotonic cumulative timing with long offline gaps and reused results; verify progress counts, ETA availability, refresh/fallback frequency and bounded opt-in diagnostic retention. Inject post-publication temporary cleanup failures and report filesystem/serialization errors; verify on-disk identity, useful item reports, aggregate counts and suppression of repetitive console errors. Preserve the 16 MP guard and strict recognition/metadata policies. Actual Windows/Linux, installed-process and private-photo outcomes remain separate evidence.
+
 ## Integrated acceptance and performance
 
 - Unit: tied-value resolution, four-reading-only serialization, exact decimal/literal-unit equality, clear zero/null and approved capture-bound arrays/date rules; internal candidate selection is covered separately. Cover latest-date ties within one local month without silently moving the date to a previous UTC month, and the separate approved differing-local-month exception.

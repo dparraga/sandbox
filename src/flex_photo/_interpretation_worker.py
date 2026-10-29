@@ -16,7 +16,7 @@ import time
 
 from .interpretation import (InterpretationAssets, SharedAssetError, _validate_assets,
     _parse_field, _FIELDS, _MODEL_SHA256, _MEMORY_BYTES, _DECODE_SECONDS, _OCR_SECONDS,
-    _PHOTO_SECONDS, _PRIMARY_PIXELS, _CROP_PIXELS, _SCALED_PIXELS)
+    _PHOTO_SECONDS, _PRIMARY_PIXELS, _CROP_PIXELS, _SCALED_PIXELS, _diagnostic_trace)
 
 
 class _WindowsJob:
@@ -89,13 +89,14 @@ def _environment():
     return env
 
 
-def run_bounded(path, assets):
+def run_bounded(path, assets, *, diagnostics=False):
     """Launch one worker and always reap its entire native process group/job."""
     # The parent owns derivatives so killing a crashed or timed-out worker
     # cannot bypass cleanup of pixels or the private model copy.
     temporary = tempfile.TemporaryDirectory(prefix="flex-photo-")
     try:
-        return _run_worker(path, assets, Path(temporary.name))
+        return (_run_worker(path, assets, Path(temporary.name), diagnostics=True) if diagnostics
+                else _run_worker(path, assets, Path(temporary.name)))
     finally:
         # Windows may briefly retain file references after a drained job exits.
         # Retry only that observed sharing/locking failure; every other cleanup
@@ -112,11 +113,13 @@ def run_bounded(path, assets):
                 time.sleep(.01)
 
 
-def _run_worker(path, assets, workspace):
+def _run_worker(path, assets, workspace, *, diagnostics=False):
     started = time.monotonic()
     process = subprocess.Popen([sys.executable, "-m", __name__], stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-        start_new_session=os.name != "nt", env=_environment())
+        start_new_session=os.name != "nt", env=_environment(),
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+        encoding="utf-8")
     job = None
     messages = queue.Queue()
     def read():
@@ -138,7 +141,7 @@ def _run_worker(path, assets, workspace):
         process.stdin.write(json.dumps({"path": str(path.resolve()) if path is not None else None,
             "exe": str(assets.tesseract_executable.resolve()),
             "models": str(assets.tessdata_directory.resolve()), "sha": assets.executable_sha256,
-            "workspace": str(workspace)}) + "\n")
+            "workspace": str(workspace), "diagnostics": diagnostics}) + "\n")
         process.stdin.flush()
         process.stdin.close()
         first = messages.get(timeout=_DECODE_SECONDS)
@@ -372,10 +375,12 @@ def _ocr(image, bounds, assets, folder, psm="7", kind="anchor"):
         result = subprocess.run([str(assets.tesseract_executable), str(ppm), "stdout",
             "--tessdata-dir", str(folder / "models"), "-l", "eng", "--oem", "1", "--psm", mode] + extra,
             cwd=folder, env=_environment(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, timeout=_OCR_SECONDS)
+            text=True, encoding="utf-8", timeout=_OCR_SECONDS)
         if result.returncode:
             _validate_assets(assets)
             raise RuntimeError("individual OCR execution failed")
+        if result.stdout is None:
+            raise RuntimeError("OCR output stream unavailable")
         if len(result.stdout) > 16_384:
             raise RuntimeError("OCR output limit exceeded")
         results.append(" ".join(result.stdout.split()))
@@ -594,7 +599,15 @@ def main():
     except SharedAssetError as error:
         print(json.dumps({"shared_error": str(error)}), flush=True)
     except Exception as error:
-        print(json.dumps({"error": "individual decode/OCR/resource failure: " + type(error).__name__}), flush=True)
+        # Fixed messages disclose the failing stage without OCR text or paths.
+        reason = "individual decode/OCR/resource failure: " + type(error).__name__
+        if isinstance(error, ValueError) and str(error) in (
+                "primary pixel limit exceeded", "crop pixel limit exceeded", "scaled crop pixel limit exceeded"):
+            reason = str(error)
+        result = {"error": reason}
+        if request.get("diagnostics") is True:
+            result["diagnostic_trace"] = _diagnostic_trace(error)
+        print(json.dumps(result), flush=True)
 
 if __name__ == "__main__":
     main()

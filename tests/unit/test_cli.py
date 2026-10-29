@@ -54,16 +54,16 @@ class CliTests(unittest.TestCase):
         from flex_photo.interpretation import InterpretationAssets
         arguments = ["process", "source", "--destination", "destination", "--json-output", "output",
                      "--tesseract", "engine", "--tessdata", "models", "--tesseract-sha256", "a" * 64]
-        for state, expected in (("complete", 0), ("incomplete", 1)):
+        for state, expected in (("complete", 0), ("incomplete", 1), ("paused", 0)):
             with self.subTest(state=state), patch("flex_photo.batch.process_batch",
                     return_value=BatchResult(state, Path("report.json"), {"trips": 1})) as process:
-                status, output, errors = self.invoke(arguments + ["--window-seconds", "12.5"])
+                status, output, errors = self.invoke(arguments + ["--window-seconds", "12.5", "--resume", "--diagnostics"])
                 self.assertEqual(status, expected)
                 self.assertEqual(json.loads(output)["status"], state)
                 self.assertEqual(errors, "")
                 process.assert_called_once_with(Path("source"), Path("destination"), Path("output"),
                     assets=InterpretationAssets(Path("engine"), Path("models"), "a" * 64),
-                    window=timedelta(seconds=12.5))
+                    window=timedelta(seconds=12.5), resume=True, diagnostics=True, display_progress=True)
 
     def test_invalid_processing_windows_are_argument_errors_before_processing(self):
         arguments = ["process", "source", "--destination", "destination", "--json-output", "output",

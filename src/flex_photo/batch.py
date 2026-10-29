@@ -217,6 +217,7 @@ class _Report:
                                  "repeats": 0, "skipped": 0, "moved": 0, "trips": 0}, "issues": []}
         self.expected = None
         self.saved = False
+        self.finalized = False
         self.last_write = 0.0
         self.last_error = None
         self._issues = set()
@@ -230,7 +231,10 @@ class _Report:
                 aggregates[key] = aggregates.get(key, 0) + 1
             self.value["issue_summary"] = [{"stage": stage, "issue": reason, "count": count}
                 for (stage, reason), count in sorted(aggregates.items())]
-            data = _json_bytes(self.value)
+            snapshot = dict(self.value)
+            if snapshot["status"] == "complete" and not self.finalized:
+                snapshot["status"] = "incomplete"
+            data = _json_bytes(snapshot)
             try:
                 _atomic_write(self.path, data, self.expected)
             except PublishedCleanupError as error:
@@ -1002,9 +1006,6 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                     except _CheckpointFailure:
                         raise
                     except (OSError, BatchError) as error:
-                        # A failed durable checkpoint stops preflight; completed results stay recoverable.
-                        if isinstance(error, OSError) and checkpoint.results.get(relative.as_posix()) is None:
-                            raise
                         counts["skipped"] += 1
                         evaluated = max(evaluated, before_evaluated + 1)
                         progress.update(evaluated=evaluated)
@@ -1050,6 +1051,7 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
             progress.update(stage="report", status="completing")
             # Remove extraction checkpoint only after all effects are durably reconciled.
             if checkpoint and not state["pending"]:
+                report.finalized = True
                 report.write()
                 checkpoint.finish()
     except _Paused:
@@ -1076,6 +1078,7 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
         report.value["progress"] = progress.snapshot()
     if report:
         try:
+            report.finalized = True
             report.write()
         except BatchError:
             report.value["status"] = "incomplete"

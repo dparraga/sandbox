@@ -269,6 +269,47 @@ class ResumeTests(unittest.TestCase):
         self.assertEqual(original.read_bytes(), b"changed during OCR")
         self.assertFalse(list(self.destination.glob("*.heic")))
 
+    def test_periodic_report_never_claims_completion_before_remaining_photos(self):
+        self.photo("a.heic")
+        self.photo("b.heic")
+        reports = []
+        original_report = batch._Report
+        def report_factory(output):
+            report = original_report(output)
+            reports.append(report)
+            return report
+        def terminate(path, _):
+            if path.name == "b.heic":
+                reports[0].write()
+                raise AbruptTermination()
+            return self.outcomes[path.name]
+        self.interpret.side_effect = terminate
+        with patch.object(batch, "_Report", side_effect=report_factory):
+            with self.assertRaises(AbruptTermination):
+                self.run_batch()
+        saved = json.loads(reports[0].path.read_bytes())
+        self.assertEqual(saved["status"], "incomplete")
+        self.assertTrue((self.output / ".flex-photo-checkpoint").exists())
+        self.interpret.side_effect = self._interpret
+        self.assertTrue(self.run_batch(resume=True).complete)
+
+    def test_source_disappearing_after_ocr_does_not_stop_independent_photo(self):
+        missing = self.photo("a.heic")
+        self.photo("b.heic")
+        def disappear(path, _):
+            if path == missing:
+                path.unlink()
+            return self.outcomes[path.name]
+        self.interpret.side_effect = disappear
+        result = self.run_batch()
+        self.assertFalse(result.complete)
+        self.assertEqual(result.counts["skipped"], 1)
+        self.assertEqual(result.counts["moved"], 1)
+        self.assertEqual(self.report(result)["progress"]["evaluated"], 2)
+        self.assertEqual(self.report(result)["progress"]["remaining"], 0)
+        self.assertEqual((self.destination / "b.heic").read_bytes(), self.originals["b.heic"])
+        self.assert_one_trip()
+
     def test_active_finalization_time_survives_restart_at_effect_boundary(self):
         self.photo("a.heic")
         self.photo("b.heic")

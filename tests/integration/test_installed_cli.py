@@ -35,7 +35,7 @@ class InstalledCliTests(unittest.TestCase):
             self.assertIn("The above copyright notice and this permission notice", app_license)
             self.assertEqual(
                 {name for name in names if not name.split("/")[0].endswith(".dist-info")},
-                {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py", "flex_photo/discovery.py", "flex_photo/metadata.py", "flex_photo/capture_time.py", "flex_photo/grouping.py", "flex_photo/selection.py", "flex_photo/interpretation.py", "flex_photo/_interpretation_worker.py", "flex_photo/batch.py"},
+                {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py", "flex_photo/discovery.py", "flex_photo/metadata.py", "flex_photo/capture_time.py", "flex_photo/grouping.py", "flex_photo/selection.py", "flex_photo/interpretation.py", "flex_photo/_interpretation_worker.py", "flex_photo/batch.py", "flex_photo/checkpoint.py", "flex_photo/progress.py", "flex_photo/diagnostics.py"},
             )
         installed = importlib.metadata.distribution("flex-photo")
         self.assertEqual(installed.version, __version__)

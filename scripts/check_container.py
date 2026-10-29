@@ -126,7 +126,7 @@ os.environ['FLEX_PHOTO_TESSDATA'] = '/opt/flex-photo-models'
 os.environ['FLEX_PHOTO_TESSERACT_SHA256'] = hashlib.sha256(pathlib.Path('/usr/bin/tesseract').read_bytes()).hexdigest()
 os.environ['FLEX_PHOTO_REQUIRE_NATIVE_TESTS'] = '1'
 sys.path.insert(0, '/tests/integration')
-suite = unittest.defaultTestLoader.loadTestsFromNames(['test_interpretation', 'test_batch'])
+suite = unittest.defaultTestLoader.loadTestsFromNames(['test_interpretation', 'test_batch', 'test_resume'])
 result = unittest.TextTestRunner(verbosity=2).run(suite)
 raise SystemExit(not result.wasSuccessful())
 """], timeout=300)

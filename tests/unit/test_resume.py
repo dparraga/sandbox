@@ -139,6 +139,22 @@ class ResumeTests(unittest.TestCase):
         self.assertTrue(any("configuration changed" in issue["issue"] for issue in self.report(result)["issues"]))
         self.assertTrue(self.run_batch(resume=True).complete)
 
+    def test_older_ocr_recipe_is_rejected_without_deleting_checkpoint(self):
+        self.photo("a.heic")
+        self.photo("b.heic")
+        self.pause_after("a.heic")
+        manifest = self.output / ".flex-photo-checkpoint" / "manifest.json"
+        value = json.loads(manifest.read_bytes())
+        value["config"]["recipe_version"] -= 1
+        manifest.write_bytes(batch._json_bytes(value))
+        result = self.run_batch(resume=True)
+        self.assertFalse(result.complete)
+        self.interpret.assert_not_called()
+        self.assertTrue(manifest.exists())
+        self.assertEqual(len(list(self.source.glob("*.heic"))), 2)
+        self.assertFalse(list(self.destination.glob("*.heic")))
+        self.assertTrue(any("configuration changed" in item["issue"] for item in self.report(result)["issues"]))
+
     def test_unexpected_termination_restores_last_durable_result(self):
         self.photo("a.heic")
         self.photo("b.heic")

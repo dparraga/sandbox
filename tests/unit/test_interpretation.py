@@ -211,6 +211,38 @@ class RecognitionSemanticsTests(unittest.TestCase):
         image, draw, bounds = self.reading_components()
         self.assertIsNone(worker._segment_reading(image, (10, 30, 300, 140)))
 
+    def test_drive_label_descender_is_kept_and_numeric_ink_excluded(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("RGB", (120, 140))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((25, 40, 45, 76), fill="white")
+        draw.rectangle((60, 80, 90, 108), fill="white")
+        bottom = worker._drive_label_bottom(image, (10, 20, 110, 120), 66)
+        self.assertGreater(bottom, 76)
+        self.assertLess(bottom, 80)
+
+    def test_drive_label_existing_gap_remains_before_reading(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("RGB", (100, 100))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((20, 20, 40, 44), fill="white")
+        draw.rectangle((50, 58, 80, 80), fill="white")
+        bottom = worker._drive_label_bottom(image, (0, 0, 100, 100), 46)
+        self.assertGreaterEqual(bottom, 46)
+        self.assertLess(bottom, 58)
+
+    def test_drive_label_no_measured_gap_keeps_nominal_boundary(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("RGB", (100, 100))
+        ImageDraw.Draw(image).rectangle((20, 40, 40, 75), fill="white")
+        self.assertEqual(worker._drive_label_bottom(image, (0, 0, 100, 100), 46), 46)
+
+    def test_drive_label_pixel_guard_precedes_crop_allocation(self):
+        with patch.object(self.image, "crop") as crop:
+            with self.assertRaisesRegex(ValueError, "crop pixel limit"):
+                worker._drive_label_bottom(self.image, (0, 0, 2001, 2000), 46)
+        crop.assert_not_called()
+
     def interpret_texts(self, title, readings):
         fields = ("trip_distance", "trip_duration") if title == "Drive Info" else (
             "trip_distance", "trip_duration", "trip_average_mpg", "odometer")

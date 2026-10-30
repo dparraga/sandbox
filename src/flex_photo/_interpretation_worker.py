@@ -563,6 +563,25 @@ def _reading_evidence(field, numbers, units, associated, numeric_bounds, unit_bo
     return evidence
 
 
+def _drive_label_bottom(image, bounds, nominal):
+    """Keep label descenders above a measured gap without changing numeric crops."""
+    x0, y0, x1, y1 = bounds
+    if (x1 - x0) * (y1 - y0) > _CROP_PIXELS:
+        raise ValueError("crop pixel limit exceeded")
+    gray = image.crop(bounds).convert("L")
+    pixels = gray.load()
+    row = nominal - y0
+    stop = min(gray.height, int(gray.height * .60))
+    while row < stop and any(pixels[x, row] > 190 for x in range(gray.width)):
+        row += 1
+    if row == stop:
+        return nominal
+    end = row
+    while end < stop and not any(pixels[x, end] > 190 for x in range(gray.width)):
+        end += 1
+    return y0 + (row + end) // 2
+
+
 def _interpret(image, assets, folder):
     import math
     if all(low == high for low, high in image.getextrema()):
@@ -611,7 +630,7 @@ def _interpret(image, assets, folder):
         if layout == "drive_info":
             x0, y0, x1, y1 = bounds
             cut = y0 + int((y1 - y0) * .46)
-            label = _ocr(image, (x0, y0, x1, cut), assets, folder, "7")
+            label = _ocr(image, (x0, y0, x1, _drive_label_bottom(image, bounds, cut)), assets, folder, "7")
             numeric_bounds = (x0 + int((x1 - x0) * .30), cut, x1, y1)
         elif field != "odometer":
             x0, y0, x1, y1 = bounds

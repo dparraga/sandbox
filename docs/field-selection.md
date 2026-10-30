@@ -27,7 +27,7 @@ A future value/serialization layer can use the sole candidate's value or emit JS
 
 Approval covers this API, bool-mask interpretation, candidate-result semantics and validation behavior. Returning tied candidates preserves evidence for later value resolution. The future value layer follows the confirmed [BRD](BRD.md) rules for collapsing identical parsed values/units and reporting conflicting clear readings. This component neither inspects values nor implements those batch policies.
 
-Future extraction and independent selection cover only trip distance, `hh:mm` trip duration, Trip Average MPG and odometer when present, under [BRD R05/R14](BRD.md). Capture metadata supplies selection time and trip date; no other dashboard observations are retained. Readability criteria, OCR/layout recognition, value normalization, schema, timestamp batch handling, month assignment, CLI orchestration, moves and monthly output remain outside this feature.
+Future extraction and independent selection cover only trip distance, `hh:mm` trip duration, Trip Average MPG and odometer when present, under [BRD R05/R14](BRD.md). Selected capture timestamps under BRD R04 supply selection time and trip date; no other dashboard observations are retained. Readability criteria, OCR/layout recognition, value normalization, schema, timestamp batch handling, month assignment, CLI orchestration, moves and monthly output remain outside this feature.
 
 ## Design, alternatives and cost
 

@@ -29,6 +29,8 @@ def _main(argv: Sequence[str] | None) -> int:
     processing.add_argument("--tesseract", required=True, type=Path)
     processing.add_argument("--tessdata", required=True, type=Path)
     processing.add_argument("--tesseract-sha256", required=True)
+    processing.add_argument("--resume", action="store_true", help="resume the saved operation with unchanged folders and settings")
+    processing.add_argument("--diagnostics", action="store_true", help="enable bounded private exception traces")
     arguments = parser.parse_args(argv)
     if arguments.command == "process":
         if not math.isfinite(arguments.window_seconds) or arguments.window_seconds < 0:
@@ -41,10 +43,10 @@ def _main(argv: Sequence[str] | None) -> int:
         from .interpretation import InterpretationAssets
         result = process_batch(arguments.source, arguments.destination, arguments.json_output,
             assets=InterpretationAssets(arguments.tesseract, arguments.tessdata, arguments.tesseract_sha256),
-            window=window)
+            window=window, resume=arguments.resume, diagnostics=arguments.diagnostics, display_progress=True)
         print(json.dumps(result.summary(), ensure_ascii=True))
         sys.stdout.flush()
-        return 0 if result.complete else 1
+        return 0 if result.complete or result.status == "paused" else 1
     if arguments.command == "discover":
         try:
             candidates = discover_heic(arguments.source)

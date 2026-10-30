@@ -57,6 +57,19 @@ class PhotoInterpretation:
     metadata: CaptureMetadata | None = None
     metadata_error: MetadataError | None = None
     issues: tuple[InterpretationIssue, ...] = ()
+    diagnostic_trace: str | None = None
+
+
+def _diagnostic_trace(error: BaseException) -> str:
+    """Format stack locations only, without exception text, locals or OCR data."""
+    import traceback
+    frames = [(Path(frame.filename).name, frame.lineno, frame.name, "")
+              for frame in traceback.StackSummary.extract(
+                  traceback.walk_tb(error.__traceback__), lookup_lines=False)]
+    trace = "".join(traceback.format_list(frames)) + type(error).__name__ + "\n"
+    if len(trace) > 8192:
+        trace = trace[:4096] + "\n[diagnostic stack size limit]\n" + trace[-4000:]
+    return trace
 
 class SharedAssetError(Exception):
     """Stop the caller incomplete, before any moves or monthly output effects."""
@@ -118,24 +131,26 @@ def validate_interpretation_assets(assets: InterpretationAssets) -> None:
         raise SharedAssetError("shared native runtime validation failed")
 
 
-def interpret_photo(path: Path, assets: InterpretationAssets) -> PhotoInterpretation:
+def interpret_photo(path: Path, assets: InterpretationAssets, *, diagnostics: bool = False) -> PhotoInterpretation:
     """Interpret locally without modifying the original or publishing any files."""
     _validate_assets(assets)
     from ._interpretation_worker import run_bounded
     try:
-        payload = run_bounded(path, assets)
+        payload = run_bounded(path, assets, diagnostics=True) if diagnostics else run_bounded(path, assets)
     except SharedAssetError:
         raise
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         _validate_assets(assets)
         return PhotoInterpretation(path, "unresolved", issues=(InterpretationIssue(
-            path, "individual native execution or containment failure", "preserve/report/continue"),))
+            path, "individual native execution or containment failure", "preserve/report/continue"),),
+            diagnostic_trace=_diagnostic_trace(error) if diagnostics else None)
     _validate_assets(assets)
     if payload.get("shared_error"):
         raise SharedAssetError(payload["shared_error"])
     if "error" in payload:
         return PhotoInterpretation(path, "unresolved", issues=(InterpretationIssue(
-            path, payload["error"], "preserve/report/continue"),))
+            path, payload["error"], "preserve/report/continue"),),
+            diagnostic_trace=payload.get("diagnostic_trace") if diagnostics else None)
     observations = tuple(FieldObservation(item["field_id"], item["status"], item.get("raw_text"),
         item.get("value"), item.get("unit"), tuple(CropEvidence(tuple(e["bounds"]), tuple(e["views"]),
                                                               tuple(e.get("view_ids", ())))

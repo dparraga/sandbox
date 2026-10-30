@@ -133,6 +133,116 @@ class RecognitionSemanticsTests(unittest.TestCase):
         self.image.putpixel((0, 0), (1, 1, 1))
         self.assets = InterpretationAssets(Path("engine"), Path("models"), "0" * 64)
 
+    def test_clock_group_is_rejected_before_selecting_lower_title_for_ocr(self):
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(self.image)
+        for x in (374, 395, 416, 437):
+            draw.rectangle((x, 133, x + 13, 156), fill="white")
+        for index in range(9):
+            x = 531 + index * 11
+            draw.rectangle((x, 276, x + 6, 295), fill="white")
+        candidates = worker._title_components(self.image)
+        self.assertEqual(len(candidates), 1)
+        self.assertGreater(candidates[0][1], 250)
+        with patch.object(worker, "_ocr", return_value=("Drive Info", "Drive Info")) as ocr:
+            worker._interpret(self.image, self.assets, Path("unused"))
+        self.assertTrue(ocr.called)
+        self.assertTrue(all(call.args[1][1] > 250 for call in ocr.call_args_list))
+
+    def test_right_shifted_title_is_not_clipped_at_old_search_edge(self):
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(self.image)
+        for index in range(11):
+            x = 516 + index * 14
+            draw.rectangle((x, 230, x + 8, 252), fill="white")
+        candidates = worker._title_components(self.image)
+        self.assertEqual(len(candidates), 1)
+        self.assertGreater(candidates[0][2], 650)
+
+    def test_detached_dots_do_not_turn_clock_into_eight_title_glyphs(self):
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(self.image)
+        for index in range(4):
+            x = 375 + index * 20
+            draw.rectangle((x, 130, x + 8, 152), fill="white")
+        for x, y in ((390, 134), (390, 146), (430, 134), (430, 146)):
+            draw.rectangle((x, y, x + 1, y + 1), fill="white")
+        self.assertEqual(worker._title_glyph_count(self.image, (370, 125, 460, 160)), 4)
+
+    def test_label_edge_punctuation_keeps_literal_words_and_both_views_required(self):
+        cases = (("Trip Time:", True), ("Trip Time;", True),
+                 ("TripTime:", False), ("Tr1p Time:", False),
+                 ("trip Time:", False), ("Trip :Time", False),
+                 ("Trip Time:Other", False))
+        for label, accepted in cases:
+            responses = [("Drive Info",) * 2, ("Trip Distance",) * 2,
+                         ("42.0",) * 3, ("mi",) * 6,
+                         (label, "Trip Time."), ("2:16",) * 3]
+            with self.subTest(label=label), \
+                 patch.object(worker, "_title_components", return_value=[(400, 150, 560, 175)]), \
+                 patch.object(worker, "_segment_reading", return_value=((0, 0, 10, 10), (11, 0, 20, 10))), \
+                 patch.object(worker, "_ocr", side_effect=responses):
+                result = worker._interpret(self.image, self.assets, Path("unused"))
+            self.assertEqual(result["layout"], "drive_info" if accepted else "unresolved")
+            if accepted:
+                self.assertEqual(result["observations"][1]["value"], "02:16")
+
+    def reading_components(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("RGB", (320, 160))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((90, 15, 125, 96), fill="white")
+        draw.rectangle((145, 15, 180, 102), fill="white")
+        draw.rectangle((220, 50, 235, 90), fill="white")
+        return image, draw, (10, 10, 300, 140)
+
+    def test_height_filter_cannot_silently_drop_taller_leading_digit(self):
+        image, draw, bounds = self.reading_components()
+        self.assertIsNotNone(worker._segment_reading(image, bounds))
+        draw.rectangle((35, 15, 60, 124), fill="white")
+        self.assertIsNone(worker._segment_reading(image, bounds))
+
+    def test_thin_leading_minus_cannot_be_removed_from_reading(self):
+        image, draw, bounds = self.reading_components()
+        draw.rectangle((70, 60, 83, 62), fill="white")
+        self.assertIsNone(worker._segment_reading(image, bounds))
+
+    def test_ink_continuing_outside_reading_crop_is_not_a_complete_token(self):
+        image, draw, bounds = self.reading_components()
+        self.assertIsNone(worker._segment_reading(image, (10, 30, 300, 140)))
+
+    def test_drive_label_descender_is_kept_and_numeric_ink_excluded(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("RGB", (120, 140))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((25, 40, 45, 76), fill="white")
+        draw.rectangle((60, 80, 90, 108), fill="white")
+        bottom = worker._drive_label_bottom(image, (10, 20, 110, 120), 66)
+        self.assertGreater(bottom, 76)
+        self.assertLess(bottom, 80)
+
+    def test_drive_label_existing_gap_remains_before_reading(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("RGB", (100, 100))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((20, 20, 40, 44), fill="white")
+        draw.rectangle((50, 58, 80, 80), fill="white")
+        bottom = worker._drive_label_bottom(image, (0, 0, 100, 100), 46)
+        self.assertGreaterEqual(bottom, 46)
+        self.assertLess(bottom, 58)
+
+    def test_drive_label_no_measured_gap_keeps_nominal_boundary(self):
+        from PIL import Image, ImageDraw
+        image = Image.new("RGB", (100, 100))
+        ImageDraw.Draw(image).rectangle((20, 40, 40, 75), fill="white")
+        self.assertEqual(worker._drive_label_bottom(image, (0, 0, 100, 100), 46), 46)
+
+    def test_drive_label_pixel_guard_precedes_crop_allocation(self):
+        with patch.object(self.image, "crop") as crop:
+            with self.assertRaisesRegex(ValueError, "crop pixel limit"):
+                worker._drive_label_bottom(self.image, (0, 0, 2001, 2000), 46)
+        crop.assert_not_called()
+
     def interpret_texts(self, title, readings):
         fields = ("trip_distance", "trip_duration") if title == "Drive Info" else (
             "trip_distance", "trip_duration", "trip_average_mpg", "odometer")

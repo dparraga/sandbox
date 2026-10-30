@@ -27,6 +27,6 @@ Verify reader-to-converter composition through installed-library tests outside t
 
 ## Policy boundaries
 
-Approval covers the required explicit offset, rejection of fractions longer than six digits, and strict original-only conversion/error contract. Future processing follows the confirmed [BRD](BRD.md) rules for excluded timestamps, equal-time values, month assignment and reporting. Those batch rules do not change this converter or its sanitized rejection contract.
+Approval covers the required explicit offset, rejection of fractions longer than six digits, and strict original-only conversion/error contract. Batch processing follows [BRD R04](BRD.md) for creation/filename fallbacks when an original date is unavailable. This component remains original-only; shared offset/fraction validators also reject malformed surviving EXIF fields before orchestration chooses a fallback. Equal-time values, month assignment and reporting remain batch policies. Those batch rules do not change this converter or its sanitized rejection contract.
 
 Technical basis: official Python [3.13 datetime](https://docs.python.org/3.13/library/datetime.html) and [3.14 datetime](https://docs.python.org/3.14/library/datetime.html). Their representation limits support the approved strict grammar and rejection policies above.

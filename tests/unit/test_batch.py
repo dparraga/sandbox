@@ -83,8 +83,9 @@ class BatchTests(unittest.TestCase):
                                      "month_assignment", "fields"})
         self.assertEqual(trip["fields"], {
             "trip_distance": {"value": "0.0", "unit": "mi"},
-            "trip_duration": {"value": "02:16", "unit": None},
-            "trip_average_mpg": {"value": "41.20", "unit": "MPG"}, "odometer": None})
+            "trip_duration": {"value": "02:16"},
+            "trip_average_mpg": {"value": "41.20", "unit": "MPG"}})
+        self.assertEqual(document["schema_version"], 2)
         self.assertEqual(trip["trip_date"], "2031-06-12")
         for name, data in self.saved.items():
             self.assertFalse((self.source / name).exists())
@@ -214,7 +215,7 @@ class BatchTests(unittest.TestCase):
         self.assertFalse(list(self.output.glob("????-??.json")))
         self.assertFalse(list(self.destination.glob("*.heic")))
 
-    def test_individual_failure_and_missing_timestamp_preserve_sources_and_continue(self):
+    def test_individual_failure_and_invalid_timestamp_preserve_sources_and_continue(self):
         start = datetime(2031, 6, 12, 12, tzinfo=timezone.utc)
         failed = self.photo("failed.heic", start)
         missing = self.photo("missing.heic", start)
@@ -223,7 +224,7 @@ class BatchTests(unittest.TestCase):
             InterpretationIssue(failed, "individual native failure", "preserve/report/continue"),))
         original = self.outcomes["missing.heic"]
         self.outcomes["missing.heic"] = PhotoInterpretation(
-            missing, original.layout, original.observations, CaptureMetadata(None, None, None))
+            missing, original.layout, original.observations, CaptureMetadata("invalid original date", None, None))
         self.assertFalse(self.run_batch().complete)
         self.assert_sources_preserved(["failed.heic", "missing.heic"])
         self.assertFalse((self.source / "good.heic").exists())

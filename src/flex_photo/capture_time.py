@@ -36,8 +36,13 @@ def parse_capture_time(metadata: CaptureMetadata) -> datetime:
     except ValueError:
         raise CaptureTimeError(field, "invalid") from None
 
+    offset = _parse_offset(metadata.offset_time_original)
+    microsecond = _parse_fraction(metadata.subsec_time_original)
+    return result.replace(microsecond=microsecond, tzinfo=offset)
+
+
+def _parse_offset(offset: str | None) -> timezone:
     field = "offset_time_original"
-    offset = metadata.offset_time_original
     if offset is None:
         raise CaptureTimeError(field, "missing")
     if (not isinstance(offset, str) or len(offset) != 6 or offset[0] not in "+-"
@@ -50,8 +55,11 @@ def parse_capture_time(metadata: CaptureMetadata) -> datetime:
     if offset[0] == "-":
         delta = -delta
 
+    return timezone(delta)
+
+
+def _parse_fraction(fraction: str | None) -> int:
     field = "subsec_time_original"
-    fraction = metadata.subsec_time_original
     microsecond = 0
     if fraction is not None:
         if not isinstance(fraction, str):
@@ -61,4 +69,4 @@ def parse_capture_time(metadata: CaptureMetadata) -> datetime:
         if not _ascii_digits(fraction):
             raise CaptureTimeError(field, "invalid")
         microsecond = int(fraction.ljust(6, "0"))
-    return result.replace(microsecond=microsecond, tzinfo=timezone(delta))
+    return microsecond

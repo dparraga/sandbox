@@ -18,6 +18,8 @@ import threading
 import uuid
 
 from .capture_time import CaptureTimeError, parse_capture_time
+from .capture_fallback import (CaptureFallbackError, capture_inputs, capture_inputs_match,
+                               resolve_capture, validate_capture_inputs)
 from .discovery import DiscoveryError, discover_heic, _is_link_or_reparse
 from .grouping import group_capture_times
 from .interpretation import (InterpretationAssets, SharedAssetError, interpret_photo,
@@ -31,6 +33,7 @@ from .diagnostics import Diagnostics
 
 _FIELDS = ("trip_distance", "trip_duration", "trip_average_mpg", "odometer")
 _STATE = ".flex-photo-state.json"
+_REWRITE = ".flex-photo-rewrite.json"
 
 
 class BatchError(Exception):
@@ -70,6 +73,17 @@ def _json_bytes(value) -> bytes:
 
 def _hash_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _sparse_entry(entry: dict) -> dict:
+    """Canonical public schema 2; private recovery serialization is unchanged."""
+    return {**entry, "fields": {field: {key: value for key, value in reading.items() if value is not None}
+                               for field, reading in entry["fields"].items() if reading is not None}}
+
+
+def _entry_version(entry: dict) -> int:
+    return 1 if any(reading is None or isinstance(reading, dict) and reading.get("unit", "") is None
+                    for reading in entry["fields"].values()) else 2
 
 
 def _ordinary(path: Path, *, directory: bool = False) -> os.stat_result:
@@ -330,9 +344,9 @@ def _resolve_trip(records: list[dict], report: _Report) -> tuple[str, dict]:
             raise ClearConflict("conflicting equally latest clear " + field)
         chosen = min(tied, key=lambda value: value[0])
         fields[field] = {"value": chosen[0], "unit": chosen[1]}
-    return date[:7], {"trip_date": date, "first_capture_times": sorted({item["spelling"] for item in records if item["capture"] == first}),
+    return date[:7], _sparse_entry({"trip_date": date, "first_capture_times": sorted({item["spelling"] for item in records if item["capture"] == first}),
                       "last_capture_times": sorted({item["spelling"] for item in records if item["capture"] == last}),
-                      "month_assignment": assignment, "fields": fields}
+                      "month_assignment": assignment, "fields": fields})
 
 
 def _eligible_trips(candidates: list[list[dict]], committed: list[dict], window: timedelta) -> set[int]:
@@ -361,19 +375,25 @@ def _capture_text(text: str) -> datetime:
     return parsed
 
 
-def _validate_entry(entry: dict, month: str, captures: list[str]) -> None:
+def _validate_entry(entry: dict, month: str, captures: list[str], *, schema_version=None) -> None:
     """Check only the approved public trip contract and its saved membership."""
     if not isinstance(entry, dict) or set(entry) != {"trip_date", "first_capture_times", "last_capture_times", "month_assignment", "fields"}:
         raise ValueError("unknown trip fields")
-    if not isinstance(entry["fields"], dict) or set(entry["fields"]) != set(_FIELDS):
+    if not isinstance(entry["fields"], dict) or not set(entry["fields"]) <= set(_FIELDS):
         raise ValueError("unknown dashboard fields")
+    version = _entry_version(entry) if schema_version is None else schema_version
+    if version == 1 and set(entry["fields"]) != set(_FIELDS):
+        raise ValueError("legacy dashboard fields are incomplete")
     for field, value in entry["fields"].items():
         if value is None:
+            if version == 2:
+                raise ValueError("schema 2 omits unavailable readings")
             continue
-        if not isinstance(value, dict) or set(value) != {"value", "unit"} or not isinstance(value["value"], str):
+        keys = {"value"} if version == 2 and field == "trip_duration" else {"value", "unit"}
+        if not isinstance(value, dict) or set(value) != keys or not isinstance(value["value"], str):
             raise ValueError("invalid reading")
         if field == "trip_duration":
-            if value["unit"] is not None or re.fullmatch(r"[0-9]{2,}:[0-5][0-9]", value["value"]) is None:
+            if value.get("unit") is not None or re.fullmatch(r"[0-9]{2,}:[0-5][0-9]", value["value"]) is None:
                 raise ValueError("invalid duration")
         elif value["unit"] != ("MPG" if field == "trip_average_mpg" else "mi") or re.fullmatch(r"-?[0-9]+(?:\.[0-9]+)?", value["value"]) is None:
             raise ValueError("invalid decimal or literal unit")
@@ -408,7 +428,7 @@ def _validate_entry(entry: dict, month: str, captures: list[str]) -> None:
 
 def _validate_month(value: dict, month: str) -> None:
     if (not isinstance(value, dict) or set(value) != {"schema_version", "month", "trips"}
-            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)
             or value["month"] != month or not isinstance(value["trips"], list)):
         raise ValueError("invalid monthly envelope")
 
@@ -439,7 +459,7 @@ def _validate_indexed_month(value: dict, state: dict, month: str) -> None:
         raise ValueError("monthly membership index disagrees")
     for trip in indexed:
         entry = value["trips"][trip["entry_index"]]
-        _validate_entry(entry, month, trip["captures"])
+        _validate_entry(entry, month, trip["captures"], schema_version=value["schema_version"])
         if _hash_bytes(_json_bytes(entry)) != trip["entry_digest"]:
             raise ValueError("indexed entry changed")
 
@@ -453,7 +473,7 @@ def _validate_publication(trip: dict, state: dict) -> None:
     if publication["before"] is None:
         if publication["before_bytes"] is not None:
             raise ValueError("unexpected publication base")
-        before = {"schema_version": 1, "month": trip["month"], "trips": []}
+        before = {"schema_version": _entry_version(trip["entry"]), "month": trip["month"], "trips": []}
     else:
         data = publication["before_bytes"].encode("utf-8")
         if _hash_bytes(data) != publication["before"]:
@@ -465,7 +485,9 @@ def _validate_publication(trip: dict, state: dict) -> None:
         raise ValueError("publication identity mismatch")
     after = json.loads(data)
     _validate_month(after, trip["month"])
-    if (type(trip["entry_index"]) is not int or trip["entry_index"] != len(before["trips"])
+    _validate_entry(trip["entry"], trip["month"], trip["captures"], schema_version=after["schema_version"])
+    if (after["schema_version"] != before["schema_version"]
+            or type(trip["entry_index"]) is not int or trip["entry_index"] != len(before["trips"])
             or after["trips"] != before["trips"] + [trip["entry"]]):
         raise ValueError("publication must append exactly its resolved trip")
 
@@ -482,12 +504,163 @@ def _guard_month(output: Path, state: dict, trip: dict) -> None:
             return
     elif actual == expected:
         if expected is not None:
-            _validate_indexed_month(json.loads((output / (month + ".json")).read_bytes()), state, month)
+            monthly = json.loads((output / (month + ".json")).read_bytes())
+            _validate_indexed_month(monthly, state, month)
+            _validate_entry(trip["entry"], month, trip["captures"], schema_version=monthly["schema_version"])
         return
     raise BatchError("affected monthly output changed; preserve pending sources for reconciliation")
 
 
+def _rewrite_state(value: dict) -> None:
+    """Validate rewrite snapshots without trusting the live two-file boundary."""
+    if (not isinstance(value, dict) or set(value) != {"state_version", "committed", "months", "pending"}
+            or type(value["state_version"]) is not int or value["state_version"] != 1
+            or value["pending"] is not None or not isinstance(value["committed"], list)
+            or not isinstance(value["months"], dict)):
+        raise ValueError("rewrite requires valid committed state without pending effects")
+    seen, positions = set(), set()
+    for month, digest in value["months"].items():
+        if not isinstance(month, str) or re.fullmatch(r"[0-9]{4}-[0-9]{2}", month) is None:
+            raise ValueError("invalid indexed month")
+        _capture_text(month + "-01T00:00:00+00:00")
+        if not isinstance(digest, str) or re.fullmatch(r"[a-f0-9]{64}", digest) is None:
+            raise ValueError("invalid indexed month identity")
+    for trip in value["committed"]:
+        if not isinstance(trip, dict) or set(trip) != {"hashes", "captures", "window_microseconds", "month", "entry_index", "entry_digest"}:
+            raise ValueError("invalid committed trip")
+        _validate_membership(trip, trip["window_microseconds"], seen)
+        if (trip["month"] not in value["months"] or type(trip["entry_index"]) is not int
+                or trip["entry_index"] < 0 or not isinstance(trip["entry_digest"], str)
+                or re.fullmatch(r"[a-f0-9]{64}", trip["entry_digest"]) is None):
+            raise ValueError("invalid committed trip index")
+        position = trip["month"], trip["entry_index"]
+        if position in positions:
+            raise ValueError("duplicate committed trip index")
+        positions.add(position)
+
+
+def _derived_rewrite(month: str, before_month: bytes, before_state: bytes) -> tuple[bytes, bytes]:
+    state, monthly = json.loads(before_state), json.loads(before_month)
+    _rewrite_state(state)
+    if state["months"].get(month) != _hash_bytes(before_month):
+        raise ValueError("rewrite month does not match its saved index")
+    _validate_indexed_month(monthly, state, month)
+    if monthly["schema_version"] != 1:
+        raise ValueError("rewrite input must use legacy schema 1")
+    after_month = _json_bytes({**monthly, "schema_version": 2,
+                               "trips": [_sparse_entry(entry) for entry in monthly["trips"]]})
+    sparse = json.loads(after_month)
+    state["months"][month] = _hash_bytes(after_month)
+    for trip in state["committed"]:
+        if trip["month"] == month:
+            trip["entry_digest"] = _hash_bytes(_json_bytes(sparse["trips"][trip["entry_index"]]))
+    _validate_indexed_month(sparse, state, month)
+    return after_month, _json_bytes(state)
+
+
+def _recover_rewrite(output: Path) -> None:
+    """Finish only a validated month-then-state transition under the output lock."""
+    path = output / _REWRITE
+    journal_hash = _actual_hash(path)
+    if journal_hash is None:
+        return
+    try:
+        journal = json.loads(path.read_bytes())
+        if (not isinstance(journal, dict) or set(journal) != {"rewrite_version", "output_identity", "month", "before_month", "after_month", "before_state", "after_state"}
+                or type(journal["rewrite_version"]) is not int or journal["rewrite_version"] != 1
+                or journal["output_identity"] != _identity(output)
+                or not isinstance(journal["month"], str)
+                or re.fullmatch(r"[0-9]{4}-[0-9]{2}", journal["month"]) is None):
+            raise ValueError("invalid rewrite ownership or envelope")
+        snapshots = {}
+        for name in ("before_month", "after_month", "before_state", "after_state"):
+            value = journal[name]
+            if not isinstance(value, dict) or set(value) != {"bytes", "hash"} or not isinstance(value["bytes"], str):
+                raise ValueError("invalid rewrite snapshot")
+            data = value["bytes"].encode("utf-8")
+            if _hash_bytes(data) != value["hash"]:
+                raise ValueError("rewrite snapshot hash mismatch")
+            snapshots[name] = data
+        month = journal["month"]
+        derived = _derived_rewrite(month, snapshots["before_month"], snapshots["before_state"])
+        if derived != (snapshots["after_month"], snapshots["after_state"]):
+            raise ValueError("rewrite changes data beyond sparse serialization")
+        month_path = output / (month + ".json")
+        actual = _actual_hash(month_path), _actual_hash(output / _STATE)
+        before = journal["before_month"]["hash"], journal["before_state"]["hash"]
+        after = journal["after_month"]["hash"], journal["after_state"]["hash"]
+        if actual not in (before, (after[0], before[1]), after):
+            raise ValueError("rewrite files have unexpected or unreachable identities")
+        if actual == before:
+            _atomic_write(month_path, snapshots["after_month"], before[0])
+            _rewrite_sync(output)
+        if actual != after:
+            _atomic_write(output / _STATE, snapshots["after_state"], before[1])
+            _rewrite_sync(output)
+        if (_actual_hash(month_path), _actual_hash(output / _STATE)) != after:
+            raise ValueError("rewrite publication could not be verified")
+        if _actual_hash(path) != journal_hash:
+            raise ValueError("rewrite journal changed during recovery")
+        path.unlink()
+        _rewrite_sync(output)
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError, CaptureTimeError) as error:
+        raise BatchError("monthly rewrite requires reconciliation: " + str(error)) from None
+
+
+def _rewrite_sync(output: Path) -> None:
+    if os.name != "nt":
+        descriptor = os.open(output, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+
+def _rewrite_month(output: Path, state: dict, expected: list[str | None], month: str) -> bool:
+    if state["pending"] is not None:
+        raise BatchError("recover pending photo effects before rewriting monthly JSON")
+    before_month = (output / (month + ".json")).read_bytes()
+    monthly = json.loads(before_month)
+    _validate_indexed_month(monthly, state, month)
+    if _actual_hash(output / _STATE) != expected[0] or _hash_bytes(before_month) != state["months"][month]:
+        raise BatchError("monthly output or private state changed before rewrite")
+    if monthly["schema_version"] == 2:
+        return False
+    before_state = (output / _STATE).read_bytes()
+    if _hash_bytes(before_state) != expected[0]:
+        raise BatchError("private state changed while reading the monthly rewrite snapshot")
+    after_month, after_state = _derived_rewrite(month, before_month, before_state)
+    journal = {"rewrite_version": 1, "output_identity": _identity(output), "month": month}
+    for name, data in (("before_month", before_month), ("after_month", after_month),
+                       ("before_state", before_state), ("after_state", after_state)):
+        journal[name] = {"bytes": data.decode("utf-8"), "hash": _hash_bytes(data)}
+    _atomic_write(output / _REWRITE, _json_bytes(journal), None)
+    _rewrite_sync(output)
+    _recover_rewrite(output)
+    state.clear()
+    state.update(json.loads(after_state))
+    expected[0] = _hash_bytes(after_state)
+    return True
+
+
+def rewrite_months(output: Path) -> dict[str, int]:
+    """Convert indexed legacy monthly files without interpreting or moving photos."""
+    output = Path(os.path.abspath(output))
+    for ancestor in (output, *output.parents):
+        _ordinary(ancestor, directory=True)
+    with _output_lock(output):
+        state, digest, invalid = _load_state(output)
+        if invalid:
+            raise BatchError("indexed monthly output requires reconciliation before rewriting")
+        if state["pending"] is not None:
+            raise BatchError("recover pending photo effects before rewriting monthly JSON")
+        expected = [digest]
+        count = sum(_rewrite_month(output, state, expected, month) for month in sorted(state["months"]))
+        return {"rewritten_months": count, "indexed_trips": len(state["committed"])}
+
+
 def _load_state(output: Path) -> tuple[dict, str | None, set[str]]:
+    _recover_rewrite(output)
     path = output / _STATE
     expected = _actual_hash(path)
     if expected is None:
@@ -534,12 +707,19 @@ def _load_state(output: Path) -> tuple[dict, str | None, set[str]]:
                 _validate_entry(trip["entry"], trip["month"], trip["captures"])
                 if not isinstance(trip["files"], list) or len(trip["files"]) != len(trip["hashes"]):
                     raise ValueError
-                for file, digest in zip(trip["files"], trip["hashes"]):
-                    if set(file) != {"source", "hash", "destination", "temporary", "stage"}:
+                for file, digest, capture in zip(trip["files"], trip["hashes"], trip["captures"]):
+                    required_file = {"source", "hash", "destination", "temporary", "stage"}
+                    if set(file) not in (required_file, required_file | {"capture_inputs"}):
                         raise ValueError
                     relative = Path(file["source"])
                     if relative.is_absolute() or not relative.parts or relative.suffix.lower() != ".heic" or any(part in ("..", ".") for part in relative.parts):
                         raise ValueError
+                    if "capture_inputs" in file:
+                        validate_capture_inputs(relative, file["capture_inputs"])
+                        resolved = resolve_capture(relative, None, inputs=file["capture_inputs"]).capture
+                        saved = _capture_text(capture)
+                        if resolved != saved or resolved.utcoffset() != saved.utcoffset():
+                            raise ValueError("pending capture context disagrees with its resolved trip")
                     for key in ("destination", "temporary"):
                         if not isinstance(file[key], str) or Path(file[key]).name != file[key] or file[key] in ("", ".", ".."):
                             raise ValueError
@@ -582,7 +762,7 @@ def _load_state(output: Path) -> tuple[dict, str | None, set[str]]:
             except (ValueError, TypeError, KeyError, CaptureTimeError):
                 invalid.add(month)
         return state, expected, invalid
-    except (ValueError, TypeError, KeyError, IndexError, OverflowError, AttributeError, CaptureTimeError):
+    except (ValueError, TypeError, KeyError, IndexError, OverflowError, AttributeError, CaptureTimeError, CaptureFallbackError):
         raise BatchError("private output state is invalid; reconciliation required") from None
 
 
@@ -638,6 +818,8 @@ def _execute_plan(output: Path, state: dict, expected: list[str | None], report:
                 target = destination / file["destination"]
                 _safe_path(origin, source, missing=True)
                 _safe_path(target, destination, missing=True)
+                if origin.exists() and "capture_inputs" in file and not capture_inputs_match(origin, file["capture_inputs"]):
+                    raise BatchError("file creation timestamp or capture context changed before movement")
                 actual = _actual_hash(target)
                 if actual is not None:
                     if actual != file["hash"]:
@@ -681,6 +863,8 @@ def _execute_plan(output: Path, state: dict, expected: list[str | None], report:
                 _guard_month(output, state, trip)
                 if origin.exists() or origin.is_symlink():
                     _safe_path(origin, source)
+                    if "capture_inputs" in file and not capture_inputs_match(origin, file["capture_inputs"]):
+                        raise BatchError("file creation timestamp or capture context changed before source deletion")
                     if _hash_file(origin) != file["hash"]:
                         raise BatchError("source changed before deletion")
                     origin.unlink()
@@ -695,7 +879,7 @@ def _execute_plan(output: Path, state: dict, expected: list[str | None], report:
                 if _actual_hash(month_path) != before:
                     raise BatchError("monthly output changed before publication")
                 before_data = month_path.read_bytes() if before else None
-                monthly = json.loads(before_data) if before else {"schema_version": 1, "month": month, "trips": []}
+                monthly = json.loads(before_data) if before else {"schema_version": _entry_version(trip["entry"]), "month": month, "trips": []}
                 trip["entry_index"] = len(monthly["trips"])
                 monthly["trips"].append(trip["entry"])
                 after = _json_bytes(monthly)
@@ -735,9 +919,12 @@ class _CheckpointFailure(BatchError):
     pass
 
 
-def _checkpoint_photo(checkpoint, relative, digest, interpreted, timing):
+def _checkpoint_photo(checkpoint, relative, digest, interpreted, timing, capture_context=None):
     try:
-        checkpoint.append(relative, digest, _compact_interpretation(interpreted), timing)
+        value = _compact_interpretation(interpreted)
+        if capture_context is not None:
+            value["capture_inputs"] = capture_context
+        checkpoint.append(relative, digest, value, timing)
     except (OSError, ValueError) as error:
         raise _CheckpointFailure("unable to save extraction checkpoint (" + type(error).__name__ + "); resume required") from error
 
@@ -752,8 +939,14 @@ def _compact_interpretation(value):
 
 def _restore_interpretation(path, value):
     """Validate cached extraction data before it can reach output planning."""
-    if not isinstance(value, dict) or set(value) != {"layout", "observations", "metadata", "issues"}:
+    required = {"layout", "observations", "metadata", "issues"}
+    if not isinstance(value, dict) or set(value) not in (required, required | {"capture_inputs"}):
         raise BatchError("invalid cached interpretation")
+    if "capture_inputs" in value:
+        try:
+            validate_capture_inputs(path, value["capture_inputs"])
+        except CaptureFallbackError as error:
+            raise BatchError("invalid cached capture context") from error
     if value["layout"] not in ("trip_summary", "drive_info", "nonmatch", "unresolved"):
         raise BatchError("invalid cached layout")
     observations = []
@@ -814,18 +1007,40 @@ def _timing(value):
     return result
 
 
-def _replay_checkpoint_issues(checkpoint, report):
+def _report_capture_source(relative, resolution, report):
+    if resolution is not None and resolution.source != "metadata":
+        report.issue(relative, "capture time from " + resolution.source,
+                     "use America/Los_Angeles fallback; original capture date unavailable",
+                     incomplete=False, stage="capture")
+
+
+def _replay_checkpoint_issues(checkpoint, report, *, relatives=None):
     for relative, item in checkpoint.results.items():
+        if relatives is not None and relative not in relatives:
+            continue
         result = item["result"]
-        for issue in result["issues"]:
-            report.issue(relative, issue["reason"], issue["action"], incomplete=result["layout"] == "unresolved", stage="interpretation")
+        resolution = failure = None
         if result["layout"] in ("trip_summary", "drive_info"):
             try:
-                if result["metadata"] is None:
-                    raise ValueError()
-                parse_capture_time(CaptureMetadata(**result["metadata"]))
-            except (CaptureTimeError, ValueError):
-                report.issue(relative, "original capture timestamp invalid or unavailable", "leave untouched; exclude from grouping", stage="metadata")
+                metadata = CaptureMetadata(**result["metadata"]) if result["metadata"] is not None else None
+                if (metadata is None or metadata.date_time_original is None) and result.get("capture_inputs") is None:
+                    raise CaptureFallbackError("legacy cache has no verified capture context; revalidate original on a new run")
+                resolution = resolve_capture(Path(relative), metadata, inputs=result.get("capture_inputs"))
+            except CaptureFallbackError as error:
+                if error.silent:
+                    report.value["counts"]["skipped"] += 1
+                    report.value["status"] = "incomplete"
+                    continue
+                failure = error
+            except (CaptureTimeError, ValueError, OverflowError, OSError) as error:
+                failure = error
+        _report_capture_source(relative, resolution, report)
+        for issue in result["issues"]:
+            if resolution and resolution.source != "metadata" and issue["action"] == "preserve/report/exclude from grouping":
+                continue
+            report.issue(relative, issue["reason"], issue["action"], incomplete=result["layout"] == "unresolved", stage="interpretation")
+        if failure:
+            report.issue(relative, "capture timestamp invalid or unavailable", "leave untouched; exclude from grouping; revalidate original on a subsequent new run", stage="metadata")
 
 
 def _process_batch(source: Path, destination: Path, output: Path, *, ownership, assets: InterpretationAssets,
@@ -901,9 +1116,13 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                 if checkpoint:
                     _replay_checkpoint_issues(checkpoint, report)
                 progress.update(evaluated=len(candidates), stage="recovery", status="completing")
+                recovered_months = {trip["month"] for trip in state["pending"]["trips"]}
                 _execute_plan(output, state, expected, report, recovery=True, boundary=boundary)
                 if state["pending"]:
                     report.value["status"] = "incomplete"
+                else:
+                    for month in sorted(recovered_months):
+                        _rewrite_month(output, state, expected, month)
             else:
                 progress.update(stage="hashing")
                 unique = {}
@@ -923,8 +1142,7 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                         cached = checkpoint.results.get(relative.as_posix())
                         if cached and cached["hash"] in committed_hashes:
                             counts["repeats"] += 1
-                            for issue in cached["result"]["issues"]:
-                                report.issue(relative, issue["reason"], issue["action"], incomplete=False, stage="interpretation")
+                            _replay_checkpoint_issues(checkpoint, report, relatives={relative.as_posix()})
                         else:
                             counts["skipped"] += 1
                             report.issue(relative, "source unavailable during preflight", "leave untouched; continue", stage="discovery")
@@ -969,8 +1187,32 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                                 raise BatchError("source changed during interpretation")
                             evaluated += 1
                             progress.record_photo(time.monotonic() - started, evaluated=evaluated)
-                            _checkpoint_photo(checkpoint, relative.as_posix(), digest, interpreted, progress.snapshot())
+                        context = None
+                        if (interpreted.layout in ("trip_summary", "drive_info")
+                                and (interpreted.metadata is None or interpreted.metadata.date_time_original is None)):
+                            context = capture_inputs(path)
+                        if cached is None or cached["hash"] != digest:
+                            _checkpoint_photo(checkpoint, relative.as_posix(), digest, interpreted, progress.snapshot(), context)
+                        elif cached["result"].get("capture_inputs") != context:
+                            if cached["result"].get("capture_inputs") is not None:
+                                report.issue(relative, "file creation timestamp changed since checkpoint", "revalidate capture fallback without repeating OCR", incomplete=False, stage="resume")
+                            _checkpoint_photo(checkpoint, relative.as_posix(), digest, interpreted, progress.snapshot(), context)
+                        resolution = capture_failure = None
+                        if interpreted.layout in ("trip_summary", "drive_info"):
+                            try:
+                                resolution = resolve_capture(path, interpreted.metadata, inputs=context)
+                            except CaptureFallbackError as error:
+                                if error.silent:
+                                    counts["skipped"] += 1
+                                    report.value["status"] = "incomplete"
+                                    continue
+                                capture_failure = error
+                            except (CaptureTimeError, OverflowError, ValueError) as error:
+                                capture_failure = error
+                        _report_capture_source(relative, resolution, report)
                         for issue in interpreted.issues:
+                            if resolution and resolution.source != "metadata" and issue.action == "preserve/report/exclude from grouping":
+                                continue
                             report.issue(relative, issue.reason, issue.action, incomplete=interpreted.layout == "unresolved", stage="interpretation")
                         if interpreted.layout == "nonmatch":
                             counts["nonmatches"] += 1
@@ -980,27 +1222,13 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                             if not interpreted.issues:
                                 report.issue(relative, "individual interpretation unresolved", "leave untouched; continue", stage="interpretation")
                             continue
-                        if interpreted.metadata is None:
-                            if not interpreted.issues:
-                                report.issue(relative, "original capture metadata unavailable", "leave untouched; exclude from grouping", stage="metadata")
+                        if capture_failure:
                             counts["skipped"] += 1
-                            report.value["status"] = "incomplete"
+                            report.issue(relative, "capture timestamp invalid or unavailable: " + str(capture_failure), "leave untouched; exclude from grouping", stage="metadata")
                             continue
-                        try:
-                            capture = parse_capture_time(interpreted.metadata)
-                            capture.astimezone(timezone.utc)
-                        except (CaptureTimeError, OverflowError, ValueError):
-                            counts["skipped"] += 1
-                            report.issue(relative, "original capture timestamp invalid or unavailable", "leave untouched; exclude from grouping", stage="metadata")
-                            continue
-                        metadata = interpreted.metadata
-                        text = metadata.date_time_original
-                        spelling = text[:4] + "-" + text[5:7] + "-" + text[8:10] + "T" + text[11:]
-                        if metadata.subsec_time_original is not None:
-                            spelling += "." + metadata.subsec_time_original
-                        spelling += metadata.offset_time_original
-                        records.append({"path": relative.as_posix(), "hash": digest, "capture": capture,
-                                        "spelling": spelling, "observations": interpreted.observations})
+                        records.append({"path": relative.as_posix(), "hash": digest, "capture": resolution.capture,
+                                        "spelling": resolution.spelling, "capture_inputs": resolution.inputs,
+                                        "observations": interpreted.observations})
                     except SharedAssetError:
                         raise
                     except _CheckpointFailure:
@@ -1022,6 +1250,7 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                 eligible = _eligible_trips(groups, state["committed"], window)
                 trips = []
                 reserved = set()
+                rewrite_months_needed = set()
                 for index, group in enumerate(groups):
                     if index not in eligible:
                         counts["skipped"] += len(group)
@@ -1033,14 +1262,20 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                         counts["skipped"] += len(group)
                         report.issue(group[0]["path"], "monthly output/index requires reconciliation", "leave trip untouched")
                         continue
+                    if month in state["months"]:
+                        rewrite_months_needed.add(month)
                     trips.append({"month": month, "entry": entry, "hashes": [item["hash"] for item in group],
                                   "captures": [item["capture"].isoformat() for item in group],
                                   "files": [{"source": item["path"], "hash": item["hash"],
                                              "destination": _reserve(destination, Path(item["path"]).name, reserved),
-                                             "temporary": ".flex-copy-" + uuid.uuid4().hex, "stage": "reserved"} for item in group]})
+                                             "temporary": ".flex-copy-" + uuid.uuid4().hex, "stage": "reserved",
+                                             **({"capture_inputs": item["capture_inputs"]} if item["capture_inputs"] is not None else {})}
+                                            for item in group]})
                 _validate_assets(assets)
                 _check_roots(roots)
                 boundary()
+                for month in sorted(rewrite_months_needed):
+                    _rewrite_month(output, state, expected, month)
                 if trips:
                     progress.update(stage="movement/publication")
                     state["pending"] = {"roots": roots, "window_microseconds": window // timedelta(microseconds=1), "trips": trips}

@@ -89,12 +89,14 @@ def _environment():
     return env
 
 
-def run_bounded(path, assets, *, diagnostics=False, size_only=False):
+def run_bounded(path, assets, *, diagnostics=False, size_only=False, fallback_baseline=None):
     """Launch one worker and always reap its entire native process group/job."""
     # The parent owns derivatives so killing a crashed or timed-out worker
     # cannot bypass cleanup of pixels or the private model copy.
     temporary = tempfile.TemporaryDirectory(prefix="flex-photo-")
     try:
+        if fallback_baseline is not None:
+            return _run_worker(path, assets, Path(temporary.name), fallback_baseline=fallback_baseline)
         if size_only:
             return _run_worker(path, assets, Path(temporary.name), size_only=True)
         return (_run_worker(path, assets, Path(temporary.name), diagnostics=True) if diagnostics
@@ -115,7 +117,7 @@ def run_bounded(path, assets, *, diagnostics=False, size_only=False):
                 time.sleep(.01)
 
 
-def _run_worker(path, assets, workspace, *, diagnostics=False, size_only=False):
+def _run_worker(path, assets, workspace, *, diagnostics=False, size_only=False, fallback_baseline=None):
     started = time.monotonic()
     process = subprocess.Popen([sys.executable, "-m", __name__], stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
@@ -124,10 +126,11 @@ def _run_worker(path, assets, workspace, *, diagnostics=False, size_only=False):
         encoding="utf-8")
     job = None
     messages = queue.Queue()
+    output_limit = 8_000_000 if fallback_baseline is not None else 65_536
     def read():
         try:
-            while line := process.stdout.readline(65_537):
-                if len(line) > 65_536:
+            while line := process.stdout.readline(output_limit + 1):
+                if len(line) > output_limit:
                     messages.put({"error": "worker output limit exceeded"})
                     return
                 messages.put(json.loads(line))
@@ -143,7 +146,8 @@ def _run_worker(path, assets, workspace, *, diagnostics=False, size_only=False):
         process.stdin.write(json.dumps({"path": str(path.resolve()) if path is not None else None,
             "exe": str(assets.tesseract_executable.resolve()),
             "models": str(assets.tessdata_directory.resolve()), "sha": assets.executable_sha256,
-            "workspace": str(workspace), "diagnostics": diagnostics, "size_only": size_only}) + "\n")
+            "workspace": str(workspace), "diagnostics": diagnostics, "size_only": size_only,
+            "fallback_baseline": fallback_baseline}) + "\n")
         process.stdin.flush()
         process.stdin.close()
         first = messages.get(timeout=_DECODE_SECONDS)
@@ -702,6 +706,10 @@ def main():
                 return
             image = _decode(Path(request["path"]))
             print(json.dumps({"stage": "decoded"}), flush=True)
+            if request.get("fallback_baseline") is not None:
+                from .fallback import prepare_candidates
+                print(json.dumps({"fallback_candidates": prepare_candidates(image, request["fallback_baseline"])}), flush=True)
+                return
         try:
             version = subprocess.run([str(assets.tesseract_executable), "--version"],
                 cwd=assets.tesseract_executable.parent, env=_environment(), stdout=subprocess.PIPE,

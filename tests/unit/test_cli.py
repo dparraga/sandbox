@@ -63,7 +63,8 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(errors, "")
                 process.assert_called_once_with(Path("source"), Path("destination"), Path("output"),
                     assets=InterpretationAssets(Path("engine"), Path("models"), "a" * 64),
-                    window=timedelta(seconds=12.5), resume=True, diagnostics=True, display_progress=True)
+                    window=timedelta(seconds=12.5), resume=True, diagnostics=True, display_progress=True,
+                    gpt_fallback=False)
 
     def test_invalid_processing_windows_are_argument_errors_before_processing(self):
         arguments = ["process", "source", "--destination", "destination", "--json-output", "output",

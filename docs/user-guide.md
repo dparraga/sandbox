@@ -1,6 +1,6 @@
-﻿# User guide
+ï»¿# User guide
 
-The application discovers HEIC candidates and processes supported Trip Summary and Drive Info photos using local assets. It writes monthly trip JSON, moves eligible originals without overwriting and retains verified recovery progress. Validation covers the existing 16 positive samples; unknown layouts remain untouched and are reported as unresolved. This does not establish general unseen-layout or real nonmatch accuracy. See the [testing plan](testing-plan.md) for coverage.
+The application discovers HEIC candidates and processes supported Trip Summary and Drive Info photos using local assets. Selective GPT fallback is an explicitly enabled integration boundary; live cloud access is currently disabled because an enforceable included-only subscription route has not been verified. It writes monthly trip JSON, moves eligible originals without overwriting and retains verified recovery progress. Validation covers the existing 16 positive samples; unknown layouts remain untouched and are reported as unresolved. This does not establish general unseen-layout or real nonmatch accuracy. See the [testing plan](testing-plan.md) for coverage.
 
 ## Install on Windows
 
@@ -60,3 +60,9 @@ Pending moves/monthly updates receive recovery-only handling before any fresh wo
 - If no report can be saved, inspect the sanitized filesystem/serialization category and errno on stderr, output-folder permissions, storage and file locks. An unsaved report is never evidence of completed work.
 
 Use the [test commands](bootstrap.md#tests-and-measurements) and [restricted-container instructions](bootstrap.md#container). Record real OCR, synthetic composition, native resource checks and platform skips separately; synthetic tests do not establish private-image accuracy.
+
+## Optional GPT fallback boundary
+
+Add `--gpt-fallback` to `process` and retain it on `--resume` to enable selective fallback handling. **This release does not send live GPT requests:** supported included-only authentication is not yet verified. It reports `included_only_unverified`, retains affected originals and their completed local OCR for resume, holds the other photos in the same potential trip, and continues independent trips. If a pending capture time cannot be validated, new trips wait too. A run with pending cloud work is incomplete; it does not pretend the image was unreadable because the service was unavailable. Omit the flag for ordinary local processing.
+
+When a supported route is available, the approved transfer scope is only unresolved field crops and minimal title/label/unit context, with unnecessary metadata removed. Clear Tesseract fields are final. No API-key billing, paid-credit fallback, automatic upgrade or alternate provider is available. App-owned sign-in and actual service privacy/retention controls must be verified before live access; no CLI credentials are reused. Private `.flex-photo-gpt` request checkpoints must be retained with extraction checkpoints when recovery is pending.

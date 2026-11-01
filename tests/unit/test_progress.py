@@ -15,6 +15,17 @@ class Clock:
 
 
 class ProgressTests(unittest.TestCase):
+    def test_fallback_time_contributes_without_counting_another_photo(self):
+        clock = Clock()
+        progress = Progress(3, stream=io.StringIO(), clock=clock)
+        progress.record_photo(2.)
+        clock.now = 7.
+        progress.record_additional_work(5.)
+        saved = progress.snapshot()
+        self.assertEqual(saved['processed_count'], 1)
+        self.assertEqual(saved['average_seconds'], 7.)
+        self.assertEqual(saved['eta_seconds'], 14.)
+
     def test_resume_excludes_paused_time_and_reused_results(self):
         clock = Clock()
         progress = Progress(5, stream=io.StringIO(), clock=clock)

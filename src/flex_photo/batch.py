@@ -25,7 +25,7 @@ from .grouping import group_capture_times
 from .interpretation import (InterpretationAssets, SharedAssetError, interpret_photo, is_oversized_photo,
                              validate_interpretation_assets as _validate_assets)
 from .selection import latest_clear_indices
-from .metadata import CaptureMetadata
+from .metadata import CaptureMetadata, MetadataError, read_capture_metadata
 from .interpretation import PhotoInterpretation, FieldObservation, InterpretationIssue
 from .checkpoint import Checkpoint, _sync_directory
 from .progress import Progress
@@ -1075,12 +1075,16 @@ def _replay_checkpoint_issues(checkpoint, report, *, relatives=None, excluded=()
 
 def _process_batch(source: Path, destination: Path, output: Path, *, ownership, assets: InterpretationAssets,
                   window: timedelta = timedelta(minutes=3), resume=False, display_progress=False,
-                  pause_event=None, diagnostics=False) -> BatchResult:
+                  pause_event=None, diagnostics=False, gpt_fallback=False, cloud_client=None) -> BatchResult:
     """Interpret/checkpoint each safe unit before verified recoverable effects."""
     report = checkpoint = progress = None
     counts = {}
     event = pause_event if pause_event is not None else threading.Event()
     paused = False
+    fallback = None
+    cloud_pending = False
+    hold_all_cloud = False
+    cloud_reported = set()
     started_run = time.monotonic()
     try:
         if not isinstance(window, timedelta) or window < timedelta(0):
@@ -1102,6 +1106,8 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                   "executable": str(assets.tesseract_executable.absolute()),
                   "tessdata": str(assets.tessdata_directory.absolute()),
                   "executable_sha256": assets.executable_sha256, "recipe_version": 4}
+        if gpt_fallback:
+            config["gpt_fallback_version"] = 1
         excluded_paths = set()
         previous_issues = []
         saved = (output / ".flex-photo-checkpoint").exists()
@@ -1143,6 +1149,10 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                     checkpoint.save(progress.snapshot())
                 except (OSError, ValueError) as error:
                     raise _CheckpointFailure("unable to checkpoint finalization timing: " + type(error).__name__) from error
+        if gpt_fallback and checkpoint:
+            from .gpt_flow import GptFallback
+            fallback = GptFallback(output, config, [p.as_posix() for p in candidates], assets,
+                                   cloud_client, resume=resume or bool(state["pending"]), boundary=boundary)
         with _pause_handler(event, progress):
             if state["pending"]:
                 if state["pending"]["roots"] != roots or state["pending"]["window_microseconds"] != config["window_microseconds"]:
@@ -1219,6 +1229,8 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                             diagnostic_log.record("interpretation", interpreted.diagnostic_trace)
                             if _hash_file(path) != digest:
                                 raise BatchError("source changed during interpretation")
+                            if fallback is not None:
+                                fallback.remember_primary(relative.as_posix(), digest, interpreted)
                             evaluated += 1
                             progress.record_photo(time.monotonic() - started, evaluated=evaluated)
                         context = None
@@ -1237,6 +1249,51 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                             counts["skipped"] += 1
                             continue
                         excluded_paths.discard(relative.as_posix())
+                        if fallback is not None:
+                            progress.update(stage="GPT fallback", evaluated=max(0, evaluated - 1))
+                            fallback_started = time.monotonic()
+                            try:
+                                interpreted, pending_cloud, cloud_reason = fallback.recover(
+                                    path, relative.as_posix(), digest, interpreted)
+                            finally:
+                                progress.record_additional_work(time.monotonic() - fallback_started)
+                            progress.update(evaluated=evaluated)
+                            if _hash_file(path) != digest:
+                                raise BatchError("source changed during fallback")
+                            if pending_cloud:
+                                cloud_pending = True
+                                counts["skipped"] += 1
+                                report.issue(relative, "requested fields pending GPT fallback",
+                                             "preserve original and completed local results; resume when access is available",
+                                             stage="fallback")
+                                if cloud_reason not in cloud_reported:
+                                    cloud_reported.add(cloud_reason)
+                                    report.issue("GPT fallback", "cloud access unavailable: " + str(cloud_reason),
+                                                 "no paid path or retry; preserve request checkpoints", stage="fallback")
+                                # Pending members still participate in the approved
+                                # first-to-last partition, preventing partial trips.
+                                try:
+                                    metadata = interpreted.metadata
+                                    if interpreted.layout == "unresolved" and metadata is None:
+                                        metadata = read_capture_metadata(path)
+                                    pending_capture = resolve_capture(path, metadata, inputs=context)
+                                    records.append({"path": relative.as_posix(), "hash": digest,
+                                        "capture": pending_capture.capture, "spelling": pending_capture.spelling,
+                                        "capture_inputs": pending_capture.inputs,
+                                        "observations": interpreted.observations, "cloud_pending": True})
+                                except (MetadataError, CaptureFallbackError, CaptureTimeError, ValueError, OverflowError):
+                                    # Without a time, independence cannot be proven.
+                                    hold_all_cloud = True
+                                continue
+                            if cloud_reason is not None:
+                                report.issue(relative, "fallback crop preparation failed",
+                                             "retain local readings; no cloud request", stage="fallback")
+                            if interpreted.layout in ("trip_summary", "drive_info"):
+                                context = (capture_inputs(path) if interpreted.metadata is None
+                                           or interpreted.metadata.date_time_original is None else None)
+                            _checkpoint_photo(checkpoint, relative.as_posix(), digest, interpreted,
+                                              progress.snapshot(), context)
+                            progress.update(stage="decoding/OCR")
                         if cached is not None and cached["hash"] != digest:
                             report.issue(relative, "input changed since checkpoint", "invalidate cached readings; reprocess changed bytes", incomplete=False, stage="resume")
                             for issue in cached["result"]["issues"]:
@@ -1299,6 +1356,13 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                 reserved = set()
                 rewrite_months_needed = set()
                 for index, group in enumerate(groups):
+                    if hold_all_cloud or any(item.get("cloud_pending") for item in group):
+                        for item in group:
+                            if not item.get("cloud_pending"):
+                                counts["skipped"] += 1
+                                report.issue(item["path"], "trip has pending cloud work",
+                                             "retain complete trip membership for resume", stage="fallback")
+                        continue
                     if index not in eligible:
                         counts["skipped"] += len(group)
                         for item in group:
@@ -1334,11 +1398,16 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                 if relative not in excluded_paths:
                     report.issue(relative, "previous input version: " + reason, "superseded by changed bytes; preserve prior failure record", incomplete=False, stage="resume")
             progress.update(stage="report", status="completing")
+            if fallback is not None and fallback.has_pending():
+                cloud_pending = True
+                report.value["status"] = "incomplete"
             # Remove extraction checkpoint only after all effects are durably reconciled.
-            if checkpoint and not state["pending"]:
+            if checkpoint and not state["pending"] and not cloud_pending:
                 report.finalized = True
                 report.write()
                 checkpoint.finish()
+                if fallback is not None:
+                    fallback.finish()
     except _Paused:
         paused = True
         if progress:
@@ -1373,8 +1442,9 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
 
 def process_batch(source: Path, destination: Path, output: Path, *, assets: InterpretationAssets,
                   window: timedelta = timedelta(minutes=3), resume=False, display_progress=False,
-                  pause_event=None, diagnostics=False) -> BatchResult:
+                  pause_event=None, diagnostics=False, gpt_fallback=False, cloud_client=None) -> BatchResult:
     with ExitStack() as ownership:
         return _process_batch(source, destination, output, ownership=ownership, assets=assets,
                               window=window, resume=resume, display_progress=display_progress,
-                              pause_event=pause_event, diagnostics=diagnostics)
+                              pause_event=pause_event, diagnostics=diagnostics,
+                              gpt_fallback=gpt_fallback, cloud_client=cloud_client)

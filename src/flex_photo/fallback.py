@@ -26,7 +26,7 @@ def _pixel_profile(image, bounds):
     crop = image.crop(bounds).convert("L")
     data = bytearray(crop.point(lambda value: 255 if value > 190 else 0).tobytes())
     width, height = crop.size
-    components = []
+    components, areas = [], {}
     for start in range(len(data)):
         if not data[start]:
             continue
@@ -42,7 +42,9 @@ def _pixel_profile(image, bounds):
                     stack.append(yy*width+xx)
         if len(points) >= 2:
             xs, ys = [p % width for p in points], [p // width for p in points]
-            components.append((min(xs), min(ys), max(xs)+1, max(ys)+1))
+            box = (min(xs), min(ys), max(xs)+1, max(ys)+1)
+            components.append(box)
+            areas[box] = len(points)
     glyphs = [b for b in components if b[3]-b[1] >= 8
               and .08 <= (b[2]-b[0])/(b[3]-b[1]) <= 1.3]
     if not glyphs:
@@ -56,8 +58,17 @@ def _pixel_profile(image, bounds):
     relevant = [b for b in components if min(b[3], bottom)-max(b[1], top) > 0]
     if any(_crosses_reading_edge(image, bounds, b) for b in relevant):
         return None
+    signs = [b for b in components if b[2]-b[0] >= 2*(b[3]-b[1])
+             and b[2] <= min(g[0] for g in glyphs)
+             and top+.25*size <= (b[1]+b[3])/2 <= bottom-.25*size]
+    # Camera speckles cannot supply punctuation. Require noise to be small in
+    # both dimensions AND ink area relative to the measured digit height.
+    # Check every original edge first and preserve even small detached signs.
+    noise = [b for b in components if b not in glyphs and b not in signs
+             and b[2]-b[0] < .1*size and b[3]-b[1] < .1*size
+             and areas[b] < .005*size*size]
     marks = [b for b in components if b not in glyphs and b[3]-b[1] <= .4*size
-             and b[2]-b[0] <= .4*size and top <= b[1] <= bottom]
+             and b not in noise and b[2]-b[0] <= .4*size and top <= b[1] <= bottom]
     colon = 0
     used = set()
     for i, a in enumerate(marks):
@@ -68,12 +79,9 @@ def _pixel_profile(image, bounds):
                 colon += 1
                 used.update((i, j))
     decimals = sum(i not in used and b[1] >= bottom-.35*size for i, b in enumerate(marks))
-    signs = [b for b in components if b[2]-b[0] >= 2*(b[3]-b[1])
-             and b[2] <= min(g[0] for g in glyphs)
-             and top+.25*size <= (b[1]+b[3])/2 <= bottom-.25*size]
     # Height/aspect grouping may not silently discard a leading digit, sign or
     # partial glyph. Unexplained components overlapping the numeric row veto it.
-    if any(b not in glyphs and b not in marks and b not in signs for b in relevant):
+    if any(b not in glyphs and b not in marks and b not in signs and b not in noise for b in relevant):
         return None
     return {"digits": len(glyphs), "colons": colon, "decimals": decimals, "signs": len(signs)}
 
@@ -224,7 +232,8 @@ def validate_response(candidate, responses):
                 or r["view_id"] not in (0,1) or r["view_id"] in ids
                 or type(r["readable"]) is not bool or r["readable"] is not True
                 or r["reason"] != "readable" or r["title_text"] != _TITLES[layout]
-                or r["field_label_text"] != label or not isinstance(r["value_text"],str)
+                or (r["field_label_text"] not in (None, "") if field == "odometer"
+                    else r["field_label_text"] != label) or not isinstance(r["value_text"],str)
                 or not _supports(candidate.get("pixel_evidence"), r["value_text"])):
             return None
         ids.add(r["view_id"])

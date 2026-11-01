@@ -38,6 +38,32 @@ def responses(case, value="02:14"):
 
 
 class PixelEvidenceTests(unittest.TestCase):
+    def test_camera_speckles_cannot_supply_colons_or_extra_decimals(self):
+        image=Image.new("RGB",(400,150),(3,5,7))
+        draw=ImageDraw.Draw(image)
+        for x in (20,110,260):
+            draw.rectangle((x,20,x+55,124),fill="white")
+        draw.rectangle((210,104,229,124),fill="white")
+        for x in (5,90,180,240,340,360):
+            for y in (30,50,80,110):
+                draw.rectangle((x,y,x+2,y+2),fill="white")
+        self.assertTrue(_supports(_pixel_profile(image,(0,0,400,150)),"12.5"))
+        # The same speckles cannot replace a missing real decimal or colon.
+        draw.rectangle((210,104,229,124),fill=(3,5,7))
+        profile=_pixel_profile(image,(0,0,400,150))
+        self.assertTrue(_supports(profile,"125"))
+        self.assertFalse(_supports(profile,"12.5"))
+        self.assertFalse(_supports(profile,"1:25"))
+        # Real, comparatively small colon dots and a detached minus survive.
+        for y in (45,85):
+            draw.rectangle((210,y,218,y+8),fill="white")
+        draw.rectangle((5,70,10,71),fill="white")
+        self.assertTrue(_supports(_pixel_profile(image,(0,0,400,150)),"-1:25"))
+        # Noise removal never excuses an actual clipped digit.
+        self.assertIsNone(_pixel_profile(image,(30,0,400,150)))
+        draw.rectangle((0,60,2,61),fill="white")
+        self.assertIsNone(_pixel_profile(image,(1,0,400,150)))
+
     def test_whole_glyph_count_and_visible_colon_required(self):
         image = duration_pixels()
         profile = _pixel_profile(image,(10,10,145,65))
@@ -89,6 +115,25 @@ class PixelEvidenceTests(unittest.TestCase):
 
 
 class AdmissionTests(unittest.TestCase):
+    def test_unlabeled_odometer_allows_null_or_empty_label_only(self):
+        case=candidate()
+        case["field_id"]="odometer"
+        case["pixel_evidence"]={"digits":3,"colons":0,"decimals":0,"signs":0}
+        case["geometry"].pop("label_bounds")
+        case["geometry"]["unit_bounds"]=[120,20,140,50]
+        for label in (None, ""):
+            r=responses(case,"123")
+            for item in r:
+                item.update(field_label_text=label,unit_text="mi")
+            self.assertEqual(validate_response(case,r).value,"123")
+        r[0]["field_label_text"]="Trip Distance"
+        self.assertIsNone(validate_response(case,r))
+        # A labeled field still requires its complete literal label.
+        case["field_id"]="trip_distance"
+        for item in r:
+            item["field_label_text"]=None
+        self.assertIsNone(validate_response(case,r))
+
     def test_scalar_requires_literal_unit_and_visible_decimal(self):
         case=candidate()
         case["field_id"]="trip_distance"

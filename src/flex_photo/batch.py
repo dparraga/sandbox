@@ -26,6 +26,7 @@ from .interpretation import (InterpretationAssets, SharedAssetError, interpret_p
                              validate_interpretation_assets as _validate_assets)
 from .selection import latest_clear_indices
 from .metadata import CaptureMetadata, MetadataError, read_capture_metadata
+from .gpt_flow import SubscriptionLimitReached
 from .interpretation import PhotoInterpretation, FieldObservation, InterpretationIssue
 from .checkpoint import Checkpoint, _sync_directory
 from .progress import Progress
@@ -1286,8 +1287,8 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                                     hold_all_cloud = True
                                 continue
                             if cloud_reason is not None:
-                                report.issue(relative, "fallback crop preparation failed",
-                                             "retain local readings; no cloud request", stage="fallback")
+                                report.issue(relative, "GPT fallback response invalid",
+                                             "retain local readings; reject fallback candidate", stage="fallback")
                             if interpreted.layout in ("trip_summary", "drive_info"):
                                 context = (capture_inputs(path) if interpreted.metadata is None
                                            or interpreted.metadata.date_time_original is None else None)
@@ -1408,8 +1409,15 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                 checkpoint.finish()
                 if fallback is not None:
                     fallback.finish()
-    except _Paused:
+    except (_Paused, SubscriptionLimitReached) as pause:
         paused = True
+        if isinstance(pause, SubscriptionLimitReached):
+            if report:
+                report.issue("GPT fallback", "subscription limit reached",
+                             "paused; resume manually when subscription allowance is available",
+                             incomplete=False, stage="fallback")
+            if progress:
+                progress.update(stage="subscription limit reached; resume manually", status="pausing")
         if progress:
             progress.close(status="paused")
         if checkpoint:

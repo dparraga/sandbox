@@ -87,3 +87,7 @@ python3 --version
 ```
 
 These use [Ubuntu's Docker package](https://ubuntu.com/server/docs/how-to/containers/docker-for-system-admins/), not Docker Desktop. Choose a supported Python 3.13/3.14 interpreter for the application environment. Create a separate Linux virtual environment; then use the hash-pinned setup requirements above. The source Dockerfile retains the reviewed bookworm OCR version even when the host Ubuntu version differs. The container helper uses Docker and accepts the image tag as its argument; run it under a user with engine access, using `sudo` where needed.
+
+## Subscription authentication dependencies
+
+The runtime lock also pins PyJWT[crypto] 2.15.1 (MIT), cryptography 50.0.2 (Apache-2.0 OR BSD-3-Clause), cffi 2.1.1 (MIT-0) and pycparser 3.12 (BSD-3-Clause). Selected Windows/Linux CPython 3.13/3.14 wheels are SHA256-pinned in `requirements-runtime.txt`; source builds and other platform wheels are not approved by that lock. Keep their installed license/attribution files, including the cryptography wheel's bundled OpenSSL notices. These libraries validate app-owned OAuth tokens; no API-key SDK or other OCR engine is added. See the [authentication instructions](user-guide.md#optional-gpt-fallback-boundary).

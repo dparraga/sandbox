@@ -1,10 +1,10 @@
-ï»¿# User guide
+# User guide
 
-The application discovers HEIC candidates and processes supported Trip Summary and Drive Info photos using local assets. Selective GPT fallback is an explicitly enabled integration boundary; live cloud access is currently disabled because an enforceable included-only subscription route has not been verified. It writes monthly trip JSON, moves eligible originals without overwriting and retains verified recovery progress. Validation covers the existing 16 positive samples; unknown layouts remain untouched and are reported as unresolved. This does not establish general unseen-layout or real nonmatch accuracy. See the [testing plan](testing-plan.md) for coverage.
+The application discovers HEIC candidates and processes supported Trip Summary and Drive Info photos using local assets. Selective GPT fallback is opt-in and uses this app's own ChatGPT subscription connection. Local processing does not require cloud sign-in. It writes monthly trip JSON, moves eligible originals without overwriting and retains verified recovery progress. Validation covers the existing 16 positive samples; unknown layouts remain untouched and are reported as unresolved. This does not establish general unseen-layout or real nonmatch accuracy. See the [testing plan](testing-plan.md) for coverage.
 
 ## Install on Windows
 
-Install Git and CPython 3.13 or 3.14, then follow the [Windows setup commands](bootstrap.md#windows-setup) to provision hash-pinned dependencies and build/install the wheel. Activation and an execution-policy change are unnecessary. Reinstall the hash-pinned runtime requirements, then rebuild/reinstall after package changes. The runtime now includes pinned local timezone data for fallback dates.
+Install Git and CPython 3.13 or 3.14, then follow the [Windows setup commands](bootstrap.md#windows-setup) to provision hash-pinned dependencies and build/install the wheel. Activation and an execution-policy change are unnecessary. Reinstall the hash-pinned runtime requirements, then rebuild/reinstall after package changes. The runtime includes pinned timezone data and audited JWT/cryptography libraries for application-owned authentication.
 
 Provision local OCR assets from the repository root:
 
@@ -56,13 +56,32 @@ Pending moves/monthly updates receive recovery-only handling before any fresh wo
 - For missing assets, verify the provisioned executable/model paths and recorded identity. Restore reviewed assets before retrying; do not bypass integrity checks.
 - For ownership errors, wait for the active process to finish. A leftover lock file alone is not ownership and need not be deleted.
 - For changed files, overlaps or recovery reconciliation, preserve originals, copies, state and reports. Follow the reported action; automatic repair/import is unavailable.
-- Images above the approved 16-million-pixel primary-image guard remain untouched and are reported explicitly. Recognition still requires both approved title/label geometry rules; unknown layouts remain unresolved.
+- Images above 16,000,000 selected-primary pixels are silently skipped and remain untouched. Recognition still requires both approved title/label geometry rules; unknown layouts remain unresolved.
 - If no report can be saved, inspect the sanitized filesystem/serialization category and errno on stderr, output-folder permissions, storage and file locks. An unsaved report is never evidence of completed work.
 
 Use the [test commands](bootstrap.md#tests-and-measurements) and [restricted-container instructions](bootstrap.md#container). Record real OCR, synthetic composition, native resource checks and platform skips separately; synthetic tests do not establish private-image accuracy.
 
 ## Optional GPT fallback boundary
 
-Add `--gpt-fallback` to `process` and retain it on `--resume` to enable selective fallback handling. **This release does not send live GPT requests:** supported included-only authentication is not yet verified. It reports `included_only_unverified`, retains affected originals and their completed local OCR for resume, holds the other photos in the same potential trip, and continues independent trips. If a pending capture time cannot be validated, new trips wait too. A run with pending cloud work is incomplete; it does not pretend the image was unreadable because the service was unavailable. Omit the flag for ordinary local processing.
+Sign in using the installed application:
 
-When a supported route is available, the approved transfer scope is only unresolved field crops and minimal title/label/unit context, with unnecessary metadata removed. Clear Tesseract fields are final. No API-key billing, paid-credit fallback, automatic upgrade or alternate provider is available. App-owned sign-in and actual service privacy/retention controls must be verified before live access; no CLI credentials are reused. Private `.flex-photo-gpt` request checkpoints must be retained with extraction checkpoints when recovery is pending.
+```powershell
+./.venv/Scripts/flex-photo.exe auth login
+./.venv/Scripts/flex-photo.exe auth status
+```
+
+Complete the OpenAI browser sign-in and app consent yourself. This connection belongs to Amazon Flex Photo Organizer; the app never copies Codex/CLI credentials or reads API keys. Access and refresh tokens are encrypted with Windows DPAPI, or held in owner-only files on Linux, and never printed. The app validates signed identity tokens and safely rotates refresh tokens.
+
+Verify the provider settings for this app use your subscription allowance only, with no purchased-credit use or separate billing. Then record that configuration for the current connection:
+
+```powershell
+./.venv/Scripts/flex-photo.exe auth confirm-subscription-only
+```
+
+This records your verification, not an independently measured service billing attestation. The confirmation is bound to the issued app client and signed account identity; a new connection requires its own confirmation. Keep the provider's subscription-only settings in force. Without the connection, granted plan permission and matching confirmation, the app refuses live fallback. There is no API-key, credit-purchase, alternate-provider or model-upgrade path.
+
+Add `--gpt-fallback` to `process` and retain it on `--resume`. Only eligible unresolved title/label/field/unit crops leave the laptop, freshly rendered without unnecessary source metadata. Clear Tesseract readings remain final. Requests use GPT-6 Luna, streaming and `store:false`; this does not itself guarantee zero service retention. Actual service/account privacy controls continue to apply.
+
+A known subscription-limit error pauses the entire run like Ctrl+C: no new OCR, image requests, moves or monthly publication. The final progress message says the subscription limit was reached. Completed work and incomplete trips remain checkpointed. Restart manually with the existing `--resume` command once allowance is available; the app does not wait, retry automatically, infer a reset time or purchase anything.
+
+Authentication/network/model failures are reported separately from unreadability. Pending originals and other photos in the same potential trip wait together; independent trips may finish unless quota has paused the whole run. If a pending capture time cannot be validated, new trips wait too. Completed compatible view responses are reused. Known service rejections may proceed on manual resume after their cause is resolved; unknown dispatch outcomes are never automatically repeated. Preserve `.flex-photo-checkpoint` and `.flex-photo-gpt` while recovery is pending.

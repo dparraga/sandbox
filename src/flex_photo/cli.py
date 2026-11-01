@@ -19,6 +19,12 @@ def _main(argv: Sequence[str] | None) -> int:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command")
+    authentication = commands.add_parser("auth", help="manage this application's ChatGPT connection")
+    auth_commands = authentication.add_subparsers(dest="auth_command", required=True)
+    auth_commands.add_parser("login", help="Continue with ChatGPT in your browser; no image requests")
+    auth_commands.add_parser("status", help="show local connection state without displaying tokens")
+    auth_commands.add_parser("confirm-subscription-only",
+                             help="record your verified subscription-only provider configuration for this connection")
     discovery = commands.add_parser("discover", help="list HEIC filename candidates as JSON")
     discovery.add_argument("source", metavar="SOURCE", type=Path, help="local source directory")
     processing = commands.add_parser("process", help="organize dashboard originals and append monthly trip JSON")
@@ -32,8 +38,30 @@ def _main(argv: Sequence[str] | None) -> int:
     processing.add_argument("--resume", action="store_true", help="resume the saved operation with unchanged folders and settings")
     processing.add_argument("--diagnostics", action="store_true", help="enable bounded private exception traces")
     processing.add_argument("--gpt-fallback", action="store_true",
-                            help="enable selective GPT boundary; live access requires supported included-only authentication")
+                            help="enable selective GPT fallback using this application's ChatGPT connection")
     arguments = parser.parse_args(argv)
+    if arguments.command == "auth":
+        from .cloud_access import CloudUnavailable
+        from .subscription_auth import CredentialStore, auth_status, sign_in, confirm_subscription_only
+        try:
+            store = CredentialStore()
+            if arguments.auth_command == "login":
+                print("Continue with ChatGPT in your browser. No images will be sent.", file=sys.stderr)
+                sign_in(store)
+            elif arguments.auth_command == "confirm-subscription-only":
+                confirm_subscription_only(store)
+            status = auth_status(store)
+            status["subscription_only_verification_source"] = (
+                "user-verified-provider-configuration" if status["subscription_only_verified"] else None)
+            print(json.dumps(status))
+            return 0
+        except (CloudUnavailable, OSError, ValueError) as error:
+            category = error.category if isinstance(error, CloudUnavailable) else "authentication"
+            print("subscription-auth: " + category, file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            print("subscription-auth: authorization canceled", file=sys.stderr)
+            return 130
     if arguments.command == "process":
         if not math.isfinite(arguments.window_seconds) or arguments.window_seconds < 0:
             processing.error("--window-seconds must be finite and nonnegative")

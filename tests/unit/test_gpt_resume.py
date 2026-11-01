@@ -97,11 +97,11 @@ class GptResumeTests(unittest.TestCase):
 
     def test_preflight_unavailability_can_resume_without_losing_local_clear_values(self):
         first = Mock()
-        first.check_available.side_effect = CloudUnavailable("quota")
+        first.check_available.side_effect = CloudUnavailable("authentication")
         recovered, pending, reason = self.flow(first).recover(
             self.path, "photo.heic", self.digest, self.photo)
         self.assertTrue(pending)
-        self.assertEqual(reason, "quota")
+        self.assertEqual(reason, "authentication")
         first.recognize.assert_not_called()
         self.assertEqual(recovered.observations, self.photo.observations)
         second = Mock()
@@ -170,3 +170,22 @@ class GptResumeTests(unittest.TestCase):
         self.assertFalse(pending)
         self.assertIsNone(reason)
         self.assertFalse(restored.has_pending())
+
+    def test_validation_profile_change_reuses_completed_requests_and_revalidates_locally(self):
+        # Inject a bad derived measurement while keeping source and request
+        # pixels/settings unchanged; this is cache behavior, not OCR evidence.
+        self.case["pixel_evidence"]["colons"] = 2
+        first = Mock()
+        first.recognize.side_effect = responses(self.case)
+        original, pending, _ = self.flow(first).recover(
+            self.path, "photo.heic", self.digest, self.photo)
+        self.assertFalse(pending)
+        self.assertEqual(first.recognize.call_count, 2)
+        self.assertEqual(original.observations[1].status, "unclear")
+        self.case["pixel_evidence"]["colons"] = 1
+        second = Mock()
+        recovered, pending, _ = self.flow(second, resume=True).recover(
+            self.path, "photo.heic", self.digest, self.photo)
+        second.recognize.assert_not_called()
+        self.assertFalse(pending)
+        self.assertEqual(recovered.observations[1].value, "02:14")

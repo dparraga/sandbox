@@ -26,7 +26,7 @@ class InstalledCliTests(unittest.TestCase):
             self.assertEqual(metadata["Version"], __version__)
             self.assertEqual(metadata["License-Expression"], "MIT")
             self.assertEqual(metadata["Requires-Python"], "<3.15,>=3.13")
-            self.assertEqual(metadata.get_all("Requires-Dist"), ["ExifRead==3.5.1", "Pillow==13.0.0", "pillow-heif==1.8.1", "tzdata==2026.6"])
+            self.assertEqual(metadata.get_all("Requires-Dist"), ["ExifRead==3.5.1", "Pillow==13.0.0", "pillow-heif==1.8.1", "tzdata==2026.6", "PyJWT[crypto]==2.15.1"])
             license_names = [name for name in names if name.endswith(".dist-info/licenses/LICENSE")]
             self.assertEqual(len(license_names), 1)
             app_license = archive.read(license_names[0]).decode("utf-8")
@@ -35,11 +35,11 @@ class InstalledCliTests(unittest.TestCase):
             self.assertIn("The above copyright notice and this permission notice", app_license)
             self.assertEqual(
                 {name for name in names if not name.split("/")[0].endswith(".dist-info")},
-                {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py", "flex_photo/discovery.py", "flex_photo/metadata.py", "flex_photo/capture_time.py", "flex_photo/grouping.py", "flex_photo/selection.py", "flex_photo/interpretation.py", "flex_photo/_interpretation_worker.py", "flex_photo/batch.py", "flex_photo/checkpoint.py", "flex_photo/progress.py", "flex_photo/diagnostics.py", "flex_photo/capture_fallback.py", "flex_photo/cloud_access.py", "flex_photo/fallback.py", "flex_photo/gpt_flow.py"},
+                {"flex_photo/__init__.py", "flex_photo/__main__.py", "flex_photo/cli.py", "flex_photo/discovery.py", "flex_photo/metadata.py", "flex_photo/capture_time.py", "flex_photo/grouping.py", "flex_photo/selection.py", "flex_photo/interpretation.py", "flex_photo/_interpretation_worker.py", "flex_photo/batch.py", "flex_photo/checkpoint.py", "flex_photo/progress.py", "flex_photo/diagnostics.py", "flex_photo/capture_fallback.py", "flex_photo/cloud_access.py", "flex_photo/fallback.py", "flex_photo/gpt_flow.py", "flex_photo/subscription_auth.py"},
             )
         installed = importlib.metadata.distribution("flex-photo")
         self.assertEqual(installed.version, __version__)
-        self.assertEqual(installed.requires, ["ExifRead==3.5.1", "Pillow==13.0.0", "pillow-heif==1.8.1", "tzdata==2026.6"])
+        self.assertEqual(installed.requires, ["ExifRead==3.5.1", "Pillow==13.0.0", "pillow-heif==1.8.1", "tzdata==2026.6", "PyJWT[crypto]==2.15.1"])
         backend = importlib.metadata.distribution("ExifRead")
         self.assertEqual(backend.version, "3.5.1")
         # The pinned wheel has development/test extras, not runtime dependencies.

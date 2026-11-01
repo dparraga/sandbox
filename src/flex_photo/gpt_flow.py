@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 
 from .checkpoint import Checkpoint, _bytes, _ordinary
-from .cloud_access import CloudClient, CloudUnavailable, MODEL
+from .cloud_access import CloudClient, CloudUnavailable, KnownRequestRejected, MODEL
 from .fallback import merge_recoveries, validate_response
 from .interpretation import InterpretationIssue, SharedAssetError
 
@@ -20,9 +20,24 @@ _INSTRUCTIONS = (
 )
 
 
+class SubscriptionLimitReached(BaseException):
+    """Controlled pause after a known service quota rejection, never a retry."""
+
+
 def _request(candidate, payload):
+    nullable = {'type': ['string', 'null']}
+    properties = {'case_id': {'type': 'string', 'enum': [candidate['case_id']]},
+                  'view_id': {'type': 'integer', 'enum': [payload['view_id']]},
+                  'title_text': nullable, 'field_label_text': nullable,
+                  'readable': {'type': 'boolean'}, 'value_text': nullable, 'unit_text': nullable,
+                  'reason': {'type': 'string', 'enum': ['readable', 'unreadable', 'clipped',
+                       'ambiguous', 'unit_missing', 'label_uncertain', 'wrong_association',
+                       'unsupported_layout', 'conflict']}}
     return {'model': MODEL, 'store': False, 'stream': True, 'tools': [],
             'instructions': _INSTRUCTIONS,
+            'text': {'format': {'type': 'json_schema', 'name': 'dashboard_reading', 'strict': True,
+                      'schema': {'type': 'object', 'additionalProperties': False,
+                                 'properties': properties, 'required': list(properties)}}},
             'input': [{'role': 'user', 'content': [
                 {'type': 'input_text', 'text': 'Field: '+candidate['field_id']+'. Case: '
                  +candidate['case_id']+'. View: '+str(payload['view_id'])+'.'},
@@ -39,15 +54,37 @@ class GptFallback:
         _ordinary(root, directory=True)
         self.journal = Checkpoint(root, config, resume=resume, candidates=candidates)
         self.assets = assets
-        self.client = client if client is not None else CloudClient()
+        if client is None:
+            from .cloud_access import SubscriptionTransport
+            from .subscription_auth import CredentialStore
+            client = CloudClient(SubscriptionTransport(CredentialStore()))
+        self.client = client
         self.boundary = boundary
         self.blocked_reason = None
 
     def _save(self, relative, digest, state):
         self.journal.append(relative, digest, state, {})
 
+    def _changed_source(self, relative, digest):
+        saved = self.journal.results.get(relative)
+        if saved is None or saved['hash'] == digest:
+            return False
+        state = saved['result']
+        if any(entry.get('status') not in ('completed', 'invalid', 'quota', 'rejected')
+               for entry in state['requests'].values()):
+            state['pending'] = True
+            self._save(relative, saved['hash'], state)
+            self.blocked_reason = 'unknown_outcome'
+            return True
+        # Preserve the append-only history, but obsolete known work cannot keep
+        # a changed source permanently pending or supply its field readings.
+        self._save(relative, digest, {'version': 1, 'requests': {}, 'candidates': {}, 'pending': False})
+        return False
+
     def remember_primary(self, relative, digest, photo):
         """Save conflict tokens before the ordinary scalar OCR checkpoint."""
+        if self._changed_source(relative, digest):
+            return
         if photo.layout not in ('trip_summary', 'drive_info', 'unresolved'):
             return
         if not any(o.status == 'unclear' for o in photo.observations) and photo.layout != 'unresolved':
@@ -61,6 +98,8 @@ class GptFallback:
             self._save(relative, digest, state)
 
     def recover(self, path, relative, digest, photo):
+        if self._changed_source(relative, digest):
+            return photo, True, 'unknown_outcome'
         if photo.layout not in ('trip_summary', 'drive_info', 'unresolved'):
             return photo, False, None
         if any(i.action == 'preserve/report/continue' for i in photo.issues):
@@ -122,26 +161,51 @@ class GptFallback:
             for view in candidate['payloads']:
                 self.boundary()
                 request = _request(candidate, view)
-                key = hashlib.sha256(_bytes({'source': digest, 'request': request,
-                     'pixel_evidence': candidate['pixel_evidence'], 'geometry': candidate['geometry']})).hexdigest()
+                identity = {'source': digest, 'request': request, 'geometry': candidate['geometry']}
+                key = hashlib.sha256(_bytes(identity)).hexdigest()
                 entry = state['requests'].get(key)
+                if entry is None:
+                    legacy_key = hashlib.sha256(_bytes(dict(identity,
+                        pixel_evidence=candidate['pixel_evidence']))).hexdigest()
+                    entry = state['requests'].get(legacy_key)
+                    if entry is not None:
+                        # Exact legacy identity proves compatible request settings.
+                        state['requests'][key] = entry
+                    elif any(record.get('status') == 'completed'
+                             and record.get('response', {}).get('case_id') == candidate['case_id']
+                             and record.get('response', {}).get('view_id') == view['view_id']
+                             for record in state['requests'].values()):
+                        # Never guess settings for an old opaque key and risk
+                        # repeating an already completed but unprovable request.
+                        pending, reason = True, 'saved_request_requires_reconciliation'
+                        self.blocked_reason = reason
+                        break
                 if entry is not None:
                     if entry.get('status') == 'completed' and isinstance(entry.get('response'), dict):
                         responses.append(entry['response'])
                         continue
                     if entry.get('status') == 'invalid':
+                        reason = 'invalid_response'
                         break
-                    if entry.get('status') not in ('sending', 'unknown'):
+                    if entry.get('status') in ('quota', 'rejected'):
+                        # Explicit manual resume may retry a known rejection.
+                        entry = None
+                    elif entry.get('status') not in ('sending', 'unknown'):
                         raise ValueError('invalid saved GPT request state')
-                    pending, reason = True, 'unknown_outcome'
-                    self.blocked_reason = reason
-                    break
+                    else:
+                        pending, reason = True, 'unknown_outcome'
+                        self.blocked_reason = reason
+                        break
                 if self.blocked_reason is not None:
                     pending, reason = True, self.blocked_reason
                     break
                 try:
                     self.client.check_available()
                 except CloudUnavailable as error:
+                    if error.category == 'quota':
+                        state['pending'] = True
+                        self._save(relative, digest, state)
+                        raise SubscriptionLimitReached() from None
                     pending, reason = True, error.category
                     self.blocked_reason = reason
                     break
@@ -154,8 +218,18 @@ class GptFallback:
                 try:
                     response = self.client.recognize(request)
                 except CloudUnavailable as error:
-                    if error.category == 'invalid_response':
+                    if error.category == 'quota':
+                        state['requests'][key] = {'status': 'quota'}
+                        state['pending'] = True
+                        self._save(relative, digest, state)
+                        raise SubscriptionLimitReached() from None
+                    elif error.category == 'invalid_response':
                         state['requests'][key] = {'status': 'invalid'}
+                        reason = 'invalid_response'
+                    elif isinstance(error, KnownRequestRejected):
+                        state['requests'][key] = {'status': 'rejected', 'category': error.category}
+                        pending, reason = True, error.category
+                        self.blocked_reason = reason
                     else:
                         state['requests'][key] = {'status': 'unknown'}
                         pending, reason = True, error.category
@@ -172,10 +246,13 @@ class GptFallback:
                                    for name, value in response.items() if name not in ('readable', 'view_id')))
                 if not bounded:
                     state['requests'][key] = {'status': 'invalid'}
+                    reason = 'invalid_response'
                 else:
                     state['requests'][key] = {'status': 'completed', 'response': response}
                     responses.append(response)
                 self._save(relative, digest, state)
+                if not bounded:
+                    break
                 self.boundary()
             accepted = validate_response(candidate, responses)
             if accepted is not None:

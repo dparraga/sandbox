@@ -67,6 +67,14 @@ class GptFallback:
             return photo, False, None
         if photo.layout != 'unresolved' and not any(o.status == 'unclear' for o in photo.observations):
             return photo, False, None
+        saved = self.journal.results.get(relative)
+        if saved and saved['hash'] == digest and any(
+                entry.get('status') in ('sending', 'unknown')
+                for entry in saved['result']['requests'].values()):
+            saved['result']['pending'] = True
+            self._save(relative, digest, saved['result'])
+            self.blocked_reason = 'unknown_outcome'
+            return photo, True, 'unknown_outcome'
         from ._interpretation_worker import run_bounded
         baseline = {'layout': photo.layout, 'observations': [asdict(o) for o in photo.observations],
                     'issues': [i.reason for i in photo.issues]}
@@ -75,9 +83,20 @@ class GptFallback:
             raise SharedAssetError(payload['shared_error'])
         if 'fallback_candidates' not in payload:
             # A native failure is never sent to GPT or called model unreadability.
-            return photo, False, 'local_crop_failure'
+            saved = self.journal.results.get(relative)
+            state = saved['result'] if saved and saved['hash'] == digest else {
+                'version': 1, 'requests': {}, 'candidates': {}}
+            state['pending'] = True
+            self._save(relative, digest, state)
+            return photo, True, 'local_crop_failure'
         candidates = payload['fallback_candidates']
         if not candidates:
+            saved = self.journal.results.get(relative)
+            if saved and saved['hash'] == digest:
+                state = saved['result']
+                if state.get('pending'):
+                    state['pending'] = False
+                    self._save(relative, digest, state)
             return photo, False, None
         saved = self.journal.results.get(relative)
         state = saved['result'] if saved and saved['hash'] == digest else {'version': 1, 'requests': {}, 'candidates': {}, 'pending': True}
@@ -129,6 +148,7 @@ class GptFallback:
                 with Path(path).open('rb') as source:
                     if hashlib.file_digest(source, 'sha256').hexdigest() != digest:
                         raise ValueError('source changed before cloud dispatch')
+                state['pending'] = True
                 state['requests'][key] = {'status': 'sending'}
                 self._save(relative, digest, state)
                 try:

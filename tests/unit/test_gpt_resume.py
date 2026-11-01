@@ -73,15 +73,27 @@ class GptResumeTests(unittest.TestCase):
     def test_interrupted_dispatch_remains_unknown_and_never_repeats(self):
         first = Mock()
         first.recognize.side_effect = Interrupted()
+        initial = self.flow(first)
+        initial.remember_primary("photo.heic", self.digest, self.photo)
         with self.assertRaises(Interrupted):
-            self.flow(first).recover(self.path, "photo.heic", self.digest, self.photo)
+            initial.recover(self.path, "photo.heic", self.digest, self.photo)
         second = Mock()
-        recovered, pending, reason = self.flow(second, resume=True).recover(
+        resumed = self.flow(second, resume=True)
+        recovered, pending, reason = resumed.recover(
             self.path, "photo.heic", self.digest, self.photo)
         self.assertTrue(pending)
         self.assertEqual(reason, "unknown_outcome")
         self.assertEqual(recovered.observations, self.photo.observations)
+        self.assertTrue(resumed.has_pending())
         second.recognize.assert_not_called()
+        self.worker.side_effect = None
+        self.worker.return_value = {"fallback_candidates": []}
+        third = Mock()
+        _, pending, reason = self.flow(third, resume=True).recover(
+            self.path, "photo.heic", self.digest, self.photo)
+        self.assertTrue(pending)
+        self.assertEqual(reason, "unknown_outcome")
+        third.recognize.assert_not_called()
 
     def test_preflight_unavailability_can_resume_without_losing_local_clear_values(self):
         first = Mock()
@@ -135,3 +147,26 @@ class GptResumeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source changed"):
             self.flow(client).recover(self.path, "photo.heic", self.digest, self.photo)
         client.recognize.assert_not_called()
+
+    def test_native_crop_failure_remains_pending_without_cloud_dispatch(self):
+        self.worker.return_value = {"error": "individual decode/OCR/resource failure: RuntimeError"}
+        self.worker.side_effect = None
+        client = Mock()
+        flow = self.flow(client)
+        recovered, pending, reason = flow.recover(
+            self.path, "photo.heic", self.digest, self.photo)
+        self.assertEqual(recovered, self.photo)
+        self.assertTrue(pending)
+        self.assertEqual(reason, "local_crop_failure")
+        self.assertTrue(flow.has_pending())
+        client.check_available.assert_not_called()
+        client.recognize.assert_not_called()
+        restored = self.flow(Mock(), resume=True)
+        self.assertTrue(restored.has_pending())
+        self.worker.return_value = {"fallback_candidates": []}
+        recovered, pending, reason = restored.recover(
+            self.path, "photo.heic", self.digest, self.photo)
+        self.assertEqual(recovered, self.photo)
+        self.assertFalse(pending)
+        self.assertIsNone(reason)
+        self.assertFalse(restored.has_pending())

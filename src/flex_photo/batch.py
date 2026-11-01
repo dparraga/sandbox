@@ -1268,7 +1268,7 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                                              stage="fallback")
                                 if cloud_reason not in cloud_reported:
                                     cloud_reported.add(cloud_reason)
-                                    report.issue("GPT fallback", "cloud access unavailable: " + str(cloud_reason),
+                                    report.issue("GPT fallback", "fallback unavailable: " + str(cloud_reason),
                                                  "no paid path or retry; preserve request checkpoints", stage="fallback")
                                 # Pending members still participate in the approved
                                 # first-to-last partition, preventing partial trips.

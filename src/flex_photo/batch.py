@@ -22,7 +22,7 @@ from .capture_fallback import (CaptureFallbackError, capture_inputs, capture_inp
                                resolve_capture, validate_capture_inputs)
 from .discovery import DiscoveryError, discover_heic, _is_link_or_reparse
 from .grouping import group_capture_times
-from .interpretation import (InterpretationAssets, SharedAssetError, interpret_photo,
+from .interpretation import (InterpretationAssets, SharedAssetError, interpret_photo, is_oversized_photo,
                              validate_interpretation_assets as _validate_assets)
 from .selection import latest_clear_indices
 from .metadata import CaptureMetadata
@@ -947,8 +947,11 @@ def _restore_interpretation(path, value):
             validate_capture_inputs(path, value["capture_inputs"])
         except CaptureFallbackError as error:
             raise BatchError("invalid cached capture context") from error
-    if value["layout"] not in ("trip_summary", "drive_info", "nonmatch", "unresolved"):
+    if value["layout"] not in ("trip_summary", "drive_info", "nonmatch", "unresolved", "excluded"):
         raise BatchError("invalid cached layout")
+    if value["layout"] == "excluded" and (value["observations"] or value["metadata"] is not None or value["issues"]
+                                         or value.get("capture_inputs") is not None):
+        raise BatchError("invalid cached exclusion")
     observations = []
     seen = set()
     for item in value["observations"]:
@@ -1014,9 +1017,36 @@ def _report_capture_source(relative, resolution, report):
                      incomplete=False, stage="capture")
 
 
-def _replay_checkpoint_issues(checkpoint, report, *, relatives=None):
+def _legacy_primary_failure(result):
+    return (result["layout"] == "unresolved" and not result["observations"]
+            and result["metadata"] is None and result["issues"] == [{
+                "reason": "primary pixel limit exceeded", "action": "preserve/report/continue"}])
+
+
+def _confirmed_legacy_exclusions(checkpoint, source, assets):
+    """Suppress a legacy error only after same-byte, bounded header proof.
+
+    The journal and pending effect plan remain intact. A missing, changed or
+    unreadable original retains normal recovery/failure handling.
+    """
+    excluded = set()
     for relative, item in checkpoint.results.items():
-        if relatives is not None and relative not in relatives:
+        if not _legacy_primary_failure(item["result"]):
+            continue
+        path = source / relative
+        try:
+            _safe_path(path, source)
+            if (_hash_file(path) == item["hash"] and is_oversized_photo(path, assets)
+                    and _hash_file(path) == item["hash"]):
+                excluded.add(relative)
+        except (OSError, BatchError):
+            continue
+    return excluded
+
+
+def _replay_checkpoint_issues(checkpoint, report, *, relatives=None, excluded=()):
+    for relative, item in checkpoint.results.items():
+        if relative in excluded or relatives is not None and relative not in relatives:
             continue
         result = item["result"]
         resolution = failure = None
@@ -1072,6 +1102,8 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                   "executable": str(assets.tesseract_executable.absolute()),
                   "tessdata": str(assets.tessdata_directory.absolute()),
                   "executable_sha256": assets.executable_sha256, "recipe_version": 4}
+        excluded_paths = set()
+        previous_issues = []
         saved = (output / ".flex-photo-checkpoint").exists()
         if saved or not state["pending"]:
             recovering = bool(state["pending"])
@@ -1083,11 +1115,14 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
             # Validate every saved scalar result even when effects recovery takes precedence.
             for relative, item in checkpoint.results.items():
                 _restore_interpretation(source / relative, item["result"])
+                if item["result"]["layout"] == "excluded":
+                    excluded_paths.add(relative)
+            excluded_paths.update(_confirmed_legacy_exclusions(checkpoint, source, assets))
             for item in checkpoint.history:
                 latest = checkpoint.results[item["relative"]]
                 if latest["hash"] != item["hash"]:
                     for issue in item["result"]["issues"]:
-                        report.issue(item["relative"], "previous input version: " + issue["reason"], "superseded by changed bytes; preserve prior failure record", incomplete=False, stage="resume")
+                        previous_issues.append((item["relative"], issue["reason"]))
             timing = _timing(checkpoint.timing)
             counts["candidates"] = len(candidates)
         else:
@@ -1114,7 +1149,7 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                     raise BatchError("pending operation configuration changed")
                 # Moved sources need not exist; the saved effect plan verifies copies.
                 if checkpoint:
-                    _replay_checkpoint_issues(checkpoint, report)
+                    _replay_checkpoint_issues(checkpoint, report, excluded=excluded_paths)
                 progress.update(evaluated=len(candidates), stage="recovery", status="completing")
                 recovered_months = {trip["month"] for trip in state["pending"]["trips"]}
                 _execute_plan(output, state, expected, report, recovery=True, boundary=boundary)
@@ -1126,6 +1161,8 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
             else:
                 progress.update(stage="hashing")
                 unique = {}
+                duplicates = []
+                excluded_hashes = set()
                 committed_hashes = {digest for trip in state["committed"] for digest in trip["hashes"]}
                 for relative in candidates:
                     boundary()
@@ -1135,7 +1172,7 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                         digest = _hash_file(path)
                         if digest in unique:
                             counts["duplicates"] += 1
-                            report.issue(relative, "byte-identical input copy", "leave extra copy untouched", incomplete=False, stage="discovery")
+                            duplicates.append((digest, relative))
                         else:
                             unique[digest] = relative
                     except FileNotFoundError:
@@ -1172,14 +1209,11 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                         _safe_path(path, source)
                         cached = checkpoint.results.get(relative.as_posix())
                         if cached is not None and cached["hash"] == digest:
-                            interpreted = _restore_interpretation(path, cached["result"])
+                            interpreted = (PhotoInterpretation(path, "excluded") if relative.as_posix() in excluded_paths
+                                           else _restore_interpretation(path, cached["result"]))
                             evaluated += 1
                             progress.update(evaluated=evaluated)
                         else:
-                            if cached is not None:
-                                report.issue(relative, "input changed since checkpoint", "invalidate cached readings; reprocess changed bytes", incomplete=False, stage="resume")
-                                for issue in cached["result"]["issues"]:
-                                    report.issue(relative, "previous input version: " + issue["reason"], "superseded by changed bytes; preserve prior failure record", incomplete=False, stage="resume")
                             started = time.monotonic()
                             interpreted = interpret_photo(path, assets, diagnostics=True) if diagnostics else interpret_photo(path, assets)
                             diagnostic_log.record("interpretation", interpreted.diagnostic_trace)
@@ -1191,12 +1225,22 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                         if (interpreted.layout in ("trip_summary", "drive_info")
                                 and (interpreted.metadata is None or interpreted.metadata.date_time_original is None)):
                             context = capture_inputs(path)
-                        if cached is None or cached["hash"] != digest:
+                        if cached is None or cached["hash"] != digest or cached["result"]["layout"] != interpreted.layout:
                             _checkpoint_photo(checkpoint, relative.as_posix(), digest, interpreted, progress.snapshot(), context)
                         elif cached["result"].get("capture_inputs") != context:
                             if cached["result"].get("capture_inputs") is not None:
                                 report.issue(relative, "file creation timestamp changed since checkpoint", "revalidate capture fallback without repeating OCR", incomplete=False, stage="resume")
                             _checkpoint_photo(checkpoint, relative.as_posix(), digest, interpreted, progress.snapshot(), context)
+                        if interpreted.layout == "excluded":
+                            excluded_paths.add(relative.as_posix())
+                            excluded_hashes.add(digest)
+                            counts["skipped"] += 1
+                            continue
+                        excluded_paths.discard(relative.as_posix())
+                        if cached is not None and cached["hash"] != digest:
+                            report.issue(relative, "input changed since checkpoint", "invalidate cached readings; reprocess changed bytes", incomplete=False, stage="resume")
+                            for issue in cached["result"]["issues"]:
+                                previous_issues.append((relative.as_posix(), issue["reason"]))
                         resolution = capture_failure = None
                         if interpreted.layout in ("trip_summary", "drive_info"):
                             try:
@@ -1244,6 +1288,9 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                         progress.update(evaluated=evaluated)
                         report.issue(relative, "unexpected photo processing failure: " + type(error).__name__, "leave untouched; continue", stage="preflight")
                     report.flush_due()
+                for digest, relative in duplicates:
+                    if digest not in excluded_hashes:
+                        report.issue(relative, "byte-identical input copy", "leave extra copy untouched", incomplete=False, stage="discovery")
                 progress.update(stage="grouping", status="completing")
                 boundary()
                 groups = [[records[index] for index in group] for group in group_capture_times([item["capture"] for item in records], window)]
@@ -1283,6 +1330,9 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                     _execute_plan(output, state, expected, report, recovery=False, boundary=boundary)
                 if state["pending"]:
                     report.value["status"] = "incomplete"
+            for relative, reason in previous_issues:
+                if relative not in excluded_paths:
+                    report.issue(relative, "previous input version: " + reason, "superseded by changed bytes; preserve prior failure record", incomplete=False, stage="resume")
             progress.update(stage="report", status="completing")
             # Remove extraction checkpoint only after all effects are durably reconciled.
             if checkpoint and not state["pending"]:

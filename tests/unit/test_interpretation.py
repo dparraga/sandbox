@@ -4,6 +4,7 @@ from dataclasses import FrozenInstanceError
 import builtins
 import hashlib
 import json
+import io
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,7 +13,7 @@ from unittest.mock import patch
 
 from flex_photo.interpretation import (
     FieldObservation, InterpretationAssets, SharedAssetError, _parse_field,
-    interpret_photo, validate_interpretation_assets,
+    interpret_photo, is_oversized_photo, validate_interpretation_assets,
 )
 from flex_photo.metadata import CaptureMetadata, MetadataError
 import flex_photo._interpretation_worker as worker
@@ -101,6 +102,36 @@ class InterpretationOutcomeTests(unittest.TestCase):
             self.assertEqual(result.issues[0].path, self.path)
             self.assertEqual(result.issues[0].action, "preserve/report/continue")
             reader.assert_not_called()
+
+    def test_typed_size_exclusion_is_silent_and_requires_no_metadata(self):
+        result, reader = self.interpret_payload({"excluded": "primary_pixels"})
+        self.assertEqual(result.layout, "excluded")
+        self.assertEqual(result.observations, ())
+        self.assertEqual(result.issues, ())
+        self.assertIsNone(result.diagnostic_trace)
+        reader.assert_not_called()
+        # A legacy error string alone is not current evidence of exclusion.
+        result, _ = self.interpret_payload({"error": "primary pixel limit exceeded"})
+        self.assertEqual(result.layout, "unresolved")
+        self.assertTrue(result.issues)
+
+    def test_legacy_probe_only_accepts_typed_proof_and_preserves_shared_failure(self):
+        for payload, expected in (({"excluded": "primary_pixels"}, True),
+                                  ({"size_eligible": True}, False),
+                                  ({"error": "primary pixel limit exceeded"}, False),
+                                  ({"error": "unknown dimensions"}, False)):
+            with self.subTest(payload=payload), \
+                 patch("flex_photo.interpretation._validate_assets"), \
+                 patch.object(worker, "run_bounded", return_value=payload) as bounded:
+                self.assertEqual(is_oversized_photo(self.path, self.assets), expected)
+                bounded.assert_called_once_with(self.path, self.assets, size_only=True)
+        with patch("flex_photo.interpretation._validate_assets"), \
+             patch.object(worker, "run_bounded", side_effect=RuntimeError("timeout")):
+            self.assertFalse(is_oversized_photo(self.path, self.assets))
+        with patch("flex_photo.interpretation._validate_assets"), \
+             patch.object(worker, "run_bounded", return_value={"shared_error": "asset loss"}):
+            with self.assertRaises(SharedAssetError):
+                is_oversized_photo(self.path, self.assets)
 
     def test_shared_asset_loss_is_never_an_individual_skip(self):
         with self.assertRaises(SharedAssetError):
@@ -496,16 +527,68 @@ class DecoderBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(SharedAssetError, "shared decoder runtime unavailable"):
                 worker._decode(Path("unused.heic"))
 
-    def test_oversized_primary_rejected_before_pixel_conversion(self):
+    def test_primary_boundary_uses_selected_image_and_precedes_pixel_conversion(self):
         from unittest.mock import MagicMock, Mock
         import pillow_heif
-        primary = Mock(size=(16_000_001, 1))
-        decoded = MagicMock(primary_index=0)
-        decoded.__getitem__.return_value = primary
-        with patch.object(pillow_heif, "open_heif", return_value=decoded):
-            with self.assertRaisesRegex(ValueError, "primary pixel limit"):
-                worker._decode(Path("unused.heic"))
-        primary.to_pillow.assert_not_called()
+        for size in ((15_999_999, 1), (4000, 4000), (16_000_001, 1)):
+            with self.subTest(size=size):
+                primary = Mock(size=size)
+                decoded = MagicMock(primary_index=1)
+                decoded.__getitem__.return_value = primary
+                with patch.object(pillow_heif, "open_heif", return_value=decoded):
+                    if size[0] * size[1] > 16_000_000:
+                        with self.assertRaises(worker.OversizedPrimaryImage):
+                            worker._decode(Path("unused.heic"))
+                        primary.to_pillow.assert_not_called()
+                    else:
+                        self.assertIs(worker._decode(Path("unused.heic")), primary.to_pillow.return_value.convert.return_value)
+                        primary.to_pillow.assert_called_once_with()
+                decoded.__getitem__.assert_called_once_with(1)
+
+    def test_unknown_unreliable_primary_dimensions_fail_safely(self):
+        from unittest.mock import MagicMock, Mock
+        import pillow_heif
+        for size in (None, (), (4000,), (0, 4000), (-1, 16_000_001),
+                     (True, 16_000_001), (4000.0, 4000), ("4000", 4000)):
+            with self.subTest(size=size):
+                primary = Mock(size=size)
+                decoded = MagicMock(primary_index=0)
+                decoded.__getitem__.return_value = primary
+                with patch.object(pillow_heif, "open_heif", return_value=decoded):
+                    with self.assertRaises(ValueError) as error:
+                        worker._decode(Path("unused.heic"))
+                self.assertNotIsInstance(error.exception, worker.OversizedPrimaryImage)
+                primary.to_pillow.assert_not_called()
+
+    def test_worker_oversize_exits_before_tesseract_or_interpretation(self):
+        request = {"path": "unused.heic", "exe": "engine", "models": "models", "sha": "0" * 64}
+        output = io.StringIO()
+        with patch.object(worker.sys, "stdin", io.StringIO(json.dumps(request))), \
+             patch.object(worker.sys, "stdout", output), \
+             patch.object(worker, "_validate_assets"), \
+             patch.object(worker, "_decode", side_effect=worker.OversizedPrimaryImage()), \
+             patch.object(worker.subprocess, "run") as execute, \
+             patch.object(worker, "_interpret") as recognize:
+            worker.main()
+        self.assertEqual(json.loads(output.getvalue()), {"excluded": "primary_pixels"})
+        execute.assert_not_called()
+        recognize.assert_not_called()
+
+    def test_header_only_probe_never_decodes_or_invokes_tesseract(self):
+        request = {"path": "unused.heic", "exe": "engine", "models": "models", "sha": "0" * 64,
+                   "size_only": True}
+        output = io.StringIO()
+        with patch.object(worker.sys, "stdin", io.StringIO(json.dumps(request))), \
+             patch.object(worker.sys, "stdout", output), \
+             patch.object(worker, "_validate_assets"), \
+             patch.object(worker, "_open_primary") as header, \
+             patch.object(worker, "_decode") as decode, \
+             patch.object(worker.subprocess, "run") as execute:
+            worker.main()
+        self.assertEqual(json.loads(output.getvalue()), {"size_eligible": True})
+        header.assert_called_once_with(Path("unused.heic"))
+        decode.assert_not_called()
+        execute.assert_not_called()
 
 
 if __name__ == "__main__":

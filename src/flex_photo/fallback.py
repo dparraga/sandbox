@@ -93,6 +93,35 @@ def _supports(profile, text):
             and profile["signs"] == text.count("-"))
 
 
+def _duration_margin(image, bounds):
+    """Keep the existing 16 native pixel antialias margin at vertical edges."""
+    x0, y0, x1, y1 = bounds
+    ink = image.crop(bounds).convert("L").point(lambda value: 255 if value > 190 else 0).getbbox()
+    if ink is None:
+        return bounds
+    margin = 16
+    top = max(0, y0+ink[1]-margin) if ink[1] < margin else y0
+    bottom = min(image.height, y0+ink[3]+margin) if y1-y0-ink[3] < margin else y1
+    return (x0, top, x1, bottom)
+
+
+def _odometer_parts(image, bounds):
+    """Complete one clipped odometer row without searching neighboring rows."""
+    from ._interpretation_worker import _segment_reading
+    parts = _segment_reading(image, bounds)
+    if parts is not None:
+        return parts
+    x0, y0, x1, y1 = bounds
+    margin = (y1-y0)//2
+    probe = (x0, max(0,y0-margin), x1, min(image.height,y1+margin))
+    if (probe[2]-probe[0])*(probe[3]-probe[1]) > _CROP_PIXELS:
+        return None
+    parts = _segment_reading(image, probe)
+    if parts is None or any(not y0 <= (b[1]+b[3])/2 < y1 for b in parts):
+        return None
+    return parts
+
+
 def _payloads(image, panels):
     from PIL import Image
     crops = [(role, image.crop(bounds).convert("RGB")) for role, bounds in panels]
@@ -172,10 +201,19 @@ def prepare_candidates(image, baseline):
             label, number = (x0,y0,cut,y1), (cut,y0,x1,y1)
         unit = None
         if field != "trip_duration":
-            parts = _segment_reading(image, number)
+            parts = _odometer_parts(image, number) if field == "odometer" else _segment_reading(image, number)
             if parts is None:
                 continue
             number, unit = parts
+        else:
+            number = _duration_margin(image, number)
+        # Completed numeric pixels may extend the original geometric row, but
+        # its exact label crop and field association remain unchanged.
+        bounds = (bounds[0], min(bounds[1], number[1]), bounds[2], max(bounds[3], number[3]))
+        if unit:
+            bounds = (bounds[0], min(bounds[1], unit[1]), bounds[2], max(bounds[3], unit[3]))
+        if (bounds[2]-bounds[0])*(bounds[3]-bounds[1]) > _CROP_PIXELS:
+            continue
         profile = _pixel_profile(image, number)
         if profile is None or (field == "trip_duration" and (profile["digits"] < 3 or profile["colons"] != 1)):
             continue

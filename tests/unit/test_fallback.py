@@ -8,7 +8,8 @@ from unittest.mock import patch
 from PIL import Image, ImageDraw
 
 from flex_photo.fallback import (_pixel_profile, _supports, _payloads,
-                                 prepare_candidates, validate_response, merge_recoveries)
+                                 prepare_candidates, validate_response, merge_recoveries,
+                                 _duration_margin, _odometer_parts)
 from flex_photo.interpretation import FieldObservation, PhotoInterpretation
 
 
@@ -38,6 +39,41 @@ def responses(case, value="02:14"):
 
 
 class PixelEvidenceTests(unittest.TestCase):
+    def test_duration_margin_completes_near_edge_ink_without_weakening_clipping(self):
+        image=duration_pixels()
+        self.assertEqual(_duration_margin(image,(10,10,145,65)),(10,9,145,66))
+        self.assertEqual(_duration_margin(image,(10,0,145,80)),(10,0,145,80))
+        corrected=_duration_margin(image,(10,10,145,45))
+        self.assertGreater(corrected[3],45)
+        self.assertTrue(_supports(_pixel_profile(image,corrected),"02:14"))
+        self.assertIsNone(_pixel_profile(image,(10,10,145,45)))
+
+    def test_odometer_repair_requires_number_and_unit_centers_in_original_row(self):
+        image=Image.new("RGB",(200,200))
+        bounds=(10,60,190,140)
+        inside=((20,50,90,110),(100,70,130,110))
+        outside_number=((20,10,90,60),(100,70,130,110))
+        outside_unit=((20,50,90,110),(100,10,130,60))
+        with patch("flex_photo._interpretation_worker._segment_reading",side_effect=[None,inside]) as segment:
+            self.assertEqual(_odometer_parts(image,bounds),inside)
+            self.assertEqual(segment.call_args_list[1].args[1],(10,20,190,180))
+        for parts in (outside_number,outside_unit,None):
+            with patch("flex_photo._interpretation_worker._segment_reading",side_effect=[None,parts]) as segment:
+                self.assertIsNone(_odometer_parts(image,bounds))
+                self.assertEqual(segment.call_count,2)
+
+    def test_odometer_single_probe_keeps_complete_glyph_and_clipping_checks(self):
+        image=Image.new("RGB",(220,160))
+        draw=ImageDraw.Draw(image)
+        for x in (30,48,66):
+            draw.rectangle((x,45,x+8,75),fill="white")
+        for x in (95,106):
+            draw.rectangle((x,60,x+5,74),fill="white")
+        parts=_odometer_parts(image,(10,55,190,110))
+        self.assertIsNotNone(parts)
+        self.assertTrue(_supports(_pixel_profile(image,parts[0]),"123"))
+        self.assertIsNone(_odometer_parts(image,(10,65,190,85)))
+
     def test_camera_speckles_cannot_supply_colons_or_extra_decimals(self):
         image=Image.new("RGB",(400,150),(3,5,7))
         draw=ImageDraw.Draw(image)
@@ -201,6 +237,17 @@ class AdmissionTests(unittest.TestCase):
 
 
 class EligibilityTests(unittest.TestCase):
+    def test_expanded_field_over_budget_abstains_before_pixel_profile_or_payload(self):
+        image=Image.new("RGB",(800,600))
+        baseline={"layout":"drive_info","observations":[
+            {"field_id":"trip_distance","status":"clear"}]}
+        with patch("flex_photo._interpretation_worker._title_components",return_value=[(400,140,480,156)]), \
+                patch("flex_photo.fallback._duration_margin",return_value=(404,218,528,350)), \
+                patch("flex_photo.fallback._CROP_PIXELS",10000), \
+                patch("flex_photo.fallback._pixel_profile") as profile:
+            self.assertEqual(prepare_candidates(image,baseline),[])
+            profile.assert_not_called()
+
     def test_excluded_nonmatch_and_failures_never_search_pixels(self):
         image=Image.new("RGB",(800,600))
         baselines=[{"layout":"excluded"},{"layout":"nonmatch"},

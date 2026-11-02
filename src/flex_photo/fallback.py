@@ -122,30 +122,20 @@ def _odometer_parts(image, bounds):
     return parts
 
 
-def _payloads(image, panels, *, preserve_positions=False):
+def _payloads(image, panels):
     from PIL import Image
     crops = [(role, image.crop(bounds).convert("RGB")) for role, bounds in panels]
-    if preserve_positions:
-        left = min(b[0] for _, b in panels)
-        top = min(b[1] for _, b in panels)
-        size = (max(b[2] for _, b in panels)-left+16,
-                max(b[3] for _, b in panels)-top+16)
-        positions = [(b[0]-left+8,b[1]-top+8) for _, b in panels]
-    else:
-        size = (max(c.width for _, c in crops)+16, sum(c.height+8 for _, c in crops)+8)
-        positions, y = [], 8
-        for _, crop in crops:
-            positions.append((8,y))
-            y += crop.height+8
     payloads = []
     for view_id in (0, 1):
+        size = (max(c.width for _, c in crops)+16, sum(c.height+8 for _, c in crops)+8)
         if size[0]*size[1] > _SCALED_PIXELS:
             return []
         canvas = Image.new("RGB", size, "black")
-        regions = []
-        for (role, crop), (x,y) in zip(crops,positions):
-            canvas.paste(crop if view_id == 0 else crop.convert("L").convert("RGB"), (x, y))
-            regions.append({"role": role, "bounds": [x, y, x+crop.width, y+crop.height]})
+        y, regions = 8, []
+        for role, crop in crops:
+            canvas.paste(crop if view_id == 0 else crop.convert("L").convert("RGB"), (8, y))
+            regions.append({"role": role, "bounds": [8, y, 8+crop.width, y+crop.height]})
+            y += crop.height+8
         output = io.BytesIO()
         canvas.save(output, format="PNG")  # fresh image has no source EXIF or metadata
         if output.tell() > 2_000_000:
@@ -232,9 +222,7 @@ def prepare_candidates(image, baseline):
             panels.append(("unit",unit))
         if any(b[0]>=b[2] or b[1]>=b[3] or (b[2]-b[0])*(b[3]-b[1])>_CROP_PIXELS for _,b in panels):
             continue
-        # Odometer has no printed label. Preserve its lower-left position
-        # relative to the title; mask everything outside the required crops.
-        payloads = _payloads(image, panels, preserve_positions=field == "odometer")
+        payloads = _payloads(image, panels)
         if len(payloads) != 2:
             continue
         identity = hashlib.sha256((layout+field+"".join(p["pixel_sha256"] for p in payloads)).encode()).hexdigest()

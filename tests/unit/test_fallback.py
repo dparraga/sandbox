@@ -149,28 +149,6 @@ class PixelEvidenceTests(unittest.TestCase):
         with patch("flex_photo.fallback._SCALED_PIXELS",1):
             self.assertEqual(_payloads(image,[("numeric",(10,10,145,65))]),[])
 
-    def test_positioned_views_preserve_offsets_and_mask_unrelated_pixels(self):
-        image=Image.new("RGB",(240,200),(190,80,20))
-        panels=[("title",(120,20,220,50)),("numeric",(10,150,70,180)),
-                ("unit",(75,160,100,180))]
-        payloads=_payloads(image,panels,preserve_positions=True)
-        self.assertEqual(len(payloads),2)
-        self.assertNotEqual(payloads[0]["pixel_sha256"],payloads[1]["pixel_sha256"])
-        for payload in payloads:
-            with Image.open(io.BytesIO(base64.b64decode(payload["png_base64"]))) as canvas:
-                self.assertEqual(canvas.size,(226,176))
-                for (role,source), region in zip(panels,payload["panels"]):
-                    self.assertEqual(region["role"],role)
-                    self.assertEqual(region["bounds"],[source[0]-2,source[1]-12,source[2]-2,source[3]-12])
-                    expected=image.crop(source)
-                    if payload["view_id"]==1:
-                        expected=expected.convert("L").convert("RGB")
-                    self.assertEqual(canvas.crop(region["bounds"]).tobytes(),expected.tobytes())
-                self.assertEqual(canvas.getpixel((110,100)),(0,0,0))
-                self.assertEqual(canvas.getpixel((0,0)),(0,0,0))
-        with patch("flex_photo.fallback._SCALED_PIXELS",1000):
-            self.assertEqual(_payloads(image,panels,preserve_positions=True),[])
-
 
 class AdmissionTests(unittest.TestCase):
     def test_unlabeled_odometer_allows_null_or_empty_label_only(self):

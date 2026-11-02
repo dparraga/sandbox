@@ -1,10 +1,10 @@
-﻿# User guide
+# User guide
 
-The application discovers HEIC candidates and processes supported Trip Summary and Drive Info photos using local assets. It writes monthly trip JSON, moves eligible originals without overwriting and retains verified recovery progress. Validation covers the existing 16 positive samples; unknown layouts remain untouched and are reported as unresolved. This does not establish general unseen-layout or real nonmatch accuracy. See the [testing plan](testing-plan.md) for coverage.
+The application discovers HEIC candidates and processes supported Trip Summary and Drive Info photos using local assets. Selective GPT fallback is opt-in and uses this app's own ChatGPT subscription connection. Local processing does not require cloud sign-in. It writes monthly trip JSON, moves eligible originals without overwriting and retains verified recovery progress. Validation covers the existing 16 positive samples; unknown layouts remain untouched and are reported as unresolved. This does not establish general unseen-layout or real nonmatch accuracy. See the [testing plan](testing-plan.md) for coverage.
 
 ## Install on Windows
 
-Install Git and CPython 3.13 or 3.14, then follow the [Windows setup commands](bootstrap.md#windows-setup) to provision hash-pinned dependencies and build/install the wheel. Activation and an execution-policy change are unnecessary. Reinstall the hash-pinned runtime requirements, then rebuild/reinstall after package changes. The runtime now includes pinned local timezone data for fallback dates.
+Install Git and CPython 3.13 or 3.14, then follow the [Windows setup commands](bootstrap.md#windows-setup) to provision hash-pinned dependencies and build/install the wheel. Activation and an execution-policy change are unnecessary. Reinstall the hash-pinned runtime requirements, then rebuild/reinstall after package changes. The runtime includes pinned timezone data and audited JWT/cryptography libraries for application-owned authentication.
 
 Provision local OCR assets from the repository root:
 
@@ -32,7 +32,7 @@ The processing command uses three separate, nonnested local folders and explicit
 ./.venv/Scripts/flex-photo.exe process 'C:\Photos\Source' --destination 'C:\Photos\Organized' --json-output 'C:\Photos\Trip JSON' --window-seconds 180 --tesseract $assets.tesseract_executable --tessdata $assets.tessdata_directory --tesseract-sha256 $assets.executable_sha256
 ```
 
-Processing moves eligible originals. Use disposable copies for development evaluation. The source must exist; requested destination/output folders may be created. Linked/reparse paths are rejected where safe containment cannot be verified. The default grouping window is three minutes, including the boundary, measured from first to last capture without chaining.
+Images above 16,000,000 selected-primary pixels are silently left untouched, without OCR, resizing or an individual report entry. Exactly 16,000,000 pixels remains eligible subject to resource guards. Unknown dimensions retain normal safe failure handling. Processing moves eligible originals. Use disposable copies for development evaluation. The source must exist; requested destination/output folders may be created. Linked/reparse paths are rejected where safe containment cannot be verified. The default grouping window is three minutes, including the boundary, measured from first to last capture without chaining.
 
 Only Trip Summary and Drive Info are recognized. Readings are trip distance, elapsed duration (`hh:mm`), Trip Average (`MPG`) and odometer when present. Each field independently retains its latest clear value; a later absent/unclear field does not remove an earlier clear one. Zero remains a value. Missing readings and null units are omitted from monthly JSON; missing means null, and an all-unavailable trip has `fields: {}`. Trip date/month prefer original capture metadata. If the original date is unavailable, use file creation time, then a filename timestamp such as the authored example `20310612_183604224_iOS.heic`, both interpreted in America/Los_Angeles. Group these timestamps using the same first-to-last window. The report identifies fallbacks. Creation time can reflect a file copy; modification time and dashboard clocks are never used.
 
@@ -56,7 +56,34 @@ Pending moves/monthly updates receive recovery-only handling before any fresh wo
 - For missing assets, verify the provisioned executable/model paths and recorded identity. Restore reviewed assets before retrying; do not bypass integrity checks.
 - For ownership errors, wait for the active process to finish. A leftover lock file alone is not ownership and need not be deleted.
 - For changed files, overlaps or recovery reconciliation, preserve originals, copies, state and reports. Follow the reported action; automatic repair/import is unavailable.
-- Images above the approved 16-million-pixel primary-image guard remain untouched and are reported explicitly. Recognition still requires both approved title/label geometry rules; unknown layouts remain unresolved.
+- Images above 16,000,000 selected-primary pixels are silently skipped and remain untouched. Recognition still requires both approved title/label geometry rules; unknown layouts remain unresolved.
 - If no report can be saved, inspect the sanitized filesystem/serialization category and errno on stderr, output-folder permissions, storage and file locks. An unsaved report is never evidence of completed work.
 
 Use the [test commands](bootstrap.md#tests-and-measurements) and [restricted-container instructions](bootstrap.md#container). Record real OCR, synthetic composition, native resource checks and platform skips separately; synthetic tests do not establish private-image accuracy.
+
+## Optional GPT fallback boundary
+
+Sign in using the installed application:
+
+```powershell
+./.venv/Scripts/flex-photo.exe auth login
+./.venv/Scripts/flex-photo.exe auth status
+```
+
+Complete the OpenAI browser sign-in and app consent yourself. This connection belongs to Amazon Flex Photo Organizer; the app never copies Codex/CLI credentials or reads API keys. Access and refresh tokens are encrypted with Windows DPAPI, or held in owner-only files on Linux, and never printed. The app validates signed identity tokens and safely rotates refresh tokens.
+
+Verify the provider settings for this app use your subscription allowance only, with no purchased-credit use or separate billing. Then record that configuration for the current connection:
+
+```powershell
+./.venv/Scripts/flex-photo.exe auth confirm-subscription-only
+```
+
+This records your verification, not an independently measured service billing attestation. The confirmation is bound to the issued app client and signed account identity; a new connection requires its own confirmation. Keep the provider's subscription-only settings in force. Without the connection, granted plan permission and matching confirmation, the app refuses live fallback. There is no API-key, credit-purchase, alternate-provider or model-upgrade path.
+
+Add `--gpt-fallback` to `process` and retain it on `--resume`. Only eligible unresolved title/label/field/unit crops leave the laptop, freshly rendered without unnecessary source metadata. Clear Tesseract readings remain final. Requests use GPT-6 Luna, streaming and `store:false`; this does not itself guarantee zero service retention. Actual service/account privacy controls continue to apply.
+
+A known subscription-limit error pauses the entire run like Ctrl+C: no new OCR, image requests, moves or monthly publication. The final progress message says the subscription limit was reached. Completed work and incomplete trips remain checkpointed. Restart manually with the existing `--resume` command once allowance is available; the app does not wait, retry automatically, infer a reset time or purchase anything.
+
+Authentication/network/model failures are reported separately from unreadability. Pending originals and other photos in the same potential trip wait together; independent trips may finish unless quota has paused the whole run. If a pending capture time cannot be validated, new trips wait too. Completed compatible view responses are reused. Known service rejections may proceed on manual resume after their cause is resolved; unknown dispatch outcomes are never automatically repeated. Preserve `.flex-photo-checkpoint` and `.flex-photo-gpt` while recovery is pending.
+
+GPT access failures include a bounded diagnostic context when available: operation (such as token refresh or inference), HTTP status, recognized service code, response shape, safe exception type, and whether the image request was not sent, rejected, returned an invalid response or has an unknown outcome. The issue action explains the next step and includes a validated service request ID when available. Raw service messages, credentials and image content are excluded. A generic rate limit is distinct from confirmed subscription exhaustion. Old reports cannot recover details that were never recorded; preserve them as historical evidence. A completed view response is not proof that its field passed acceptance.

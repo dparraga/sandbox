@@ -89,12 +89,16 @@ def _environment():
     return env
 
 
-def run_bounded(path, assets, *, diagnostics=False):
+def run_bounded(path, assets, *, diagnostics=False, size_only=False, fallback_baseline=None):
     """Launch one worker and always reap its entire native process group/job."""
     # The parent owns derivatives so killing a crashed or timed-out worker
     # cannot bypass cleanup of pixels or the private model copy.
     temporary = tempfile.TemporaryDirectory(prefix="flex-photo-")
     try:
+        if fallback_baseline is not None:
+            return _run_worker(path, assets, Path(temporary.name), fallback_baseline=fallback_baseline)
+        if size_only:
+            return _run_worker(path, assets, Path(temporary.name), size_only=True)
         return (_run_worker(path, assets, Path(temporary.name), diagnostics=True) if diagnostics
                 else _run_worker(path, assets, Path(temporary.name)))
     finally:
@@ -113,7 +117,7 @@ def run_bounded(path, assets, *, diagnostics=False):
                 time.sleep(.01)
 
 
-def _run_worker(path, assets, workspace, *, diagnostics=False):
+def _run_worker(path, assets, workspace, *, diagnostics=False, size_only=False, fallback_baseline=None):
     started = time.monotonic()
     process = subprocess.Popen([sys.executable, "-m", __name__], stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
@@ -122,10 +126,11 @@ def _run_worker(path, assets, workspace, *, diagnostics=False):
         encoding="utf-8")
     job = None
     messages = queue.Queue()
+    output_limit = 8_000_000 if fallback_baseline is not None else 65_536
     def read():
         try:
-            while line := process.stdout.readline(65_537):
-                if len(line) > 65_536:
+            while line := process.stdout.readline(output_limit + 1):
+                if len(line) > output_limit:
                     messages.put({"error": "worker output limit exceeded"})
                     return
                 messages.put(json.loads(line))
@@ -141,7 +146,8 @@ def _run_worker(path, assets, workspace, *, diagnostics=False):
         process.stdin.write(json.dumps({"path": str(path.resolve()) if path is not None else None,
             "exe": str(assets.tesseract_executable.resolve()),
             "models": str(assets.tessdata_directory.resolve()), "sha": assets.executable_sha256,
-            "workspace": str(workspace), "diagnostics": diagnostics}) + "\n")
+            "workspace": str(workspace), "diagnostics": diagnostics, "size_only": size_only,
+            "fallback_baseline": fallback_baseline}) + "\n")
         process.stdin.flush()
         process.stdin.close()
         first = messages.get(timeout=_DECODE_SECONDS)
@@ -177,7 +183,11 @@ def _load_decoder():
     return Image, pillow_heif
 
 
-def _decode(path):
+class OversizedPrimaryImage(ValueError):
+    """Reliable selected-primary dimensions exceed input eligibility policy."""
+
+
+def _open_primary(path):
     import warnings
     Image, pillow_heif = _load_decoder()
     Image.MAX_IMAGE_PIXELS = _PRIMARY_PIXELS
@@ -189,8 +199,17 @@ def _decode(path):
     pillow_heif.options.DECODE_THREADS = 1
     decoded = pillow_heif.open_heif(path, convert_hdr_to_8bit=True)
     primary = decoded[decoded.primary_index]
-    if primary.size[0] * primary.size[1] > _PRIMARY_PIXELS:
-        raise ValueError("primary pixel limit exceeded")
+    size = primary.size
+    if (not isinstance(size, (tuple, list)) or len(size) != 2
+            or any(type(dimension) is not int or dimension <= 0 for dimension in size)):
+        raise ValueError("invalid primary dimensions")
+    if size[0] * size[1] > _PRIMARY_PIXELS:
+        raise OversizedPrimaryImage("primary pixel limit exceeded")
+    return primary
+
+
+def _decode(path):
+    primary = _open_primary(path)
     # libheif has applied HEIF rotation/mirroring during decode. Do not transpose again.
     return primary.to_pillow().convert("RGB")
 
@@ -677,6 +696,20 @@ def main():
             resource.setrlimit(resource.RLIMIT_AS, (_MEMORY_BYTES, _MEMORY_BYTES))
         assets = InterpretationAssets(Path(request["exe"]), Path(request["models"]), request["sha"])
         _validate_assets(assets)
+        # Exclude from a lazy selected-primary header before pixel allocation
+        # or a per-photo Tesseract invocation. Unknown dimensions still fail.
+        image = None
+        if request["path"] is not None:
+            if request.get("size_only") is True:
+                _open_primary(Path(request["path"]))
+                print(json.dumps({"size_eligible": True}), flush=True)
+                return
+            image = _decode(Path(request["path"]))
+            print(json.dumps({"stage": "decoded"}), flush=True)
+            if request.get("fallback_baseline") is not None:
+                from .fallback import prepare_candidates
+                print(json.dumps({"fallback_candidates": prepare_candidates(image, request["fallback_baseline"])}), flush=True)
+                return
         try:
             version = subprocess.run([str(assets.tesseract_executable), "--version"],
                 cwd=assets.tesseract_executable.parent, env=_environment(), stdout=subprocess.PIPE,
@@ -690,13 +723,13 @@ def main():
             _load_decoder()
             print(json.dumps({"validated": True}), flush=True)
             return
-        image = _decode(Path(request["path"]))
-        print(json.dumps({"stage": "decoded"}), flush=True)
         folder = Path(request["workspace"])
         (folder / "models").mkdir()
         (folder / "models" / "eng.traineddata").write_bytes((assets.tessdata_directory / "eng.traineddata").read_bytes())
         result = _interpret(image, assets, folder)
         print(json.dumps(result), flush=True)
+    except OversizedPrimaryImage:
+        print(json.dumps({"excluded": "primary_pixels"}), flush=True)
     except SharedAssetError as error:
         print(json.dumps({"shared_error": str(error)}), flush=True)
     except Exception as error:

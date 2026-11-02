@@ -49,6 +49,46 @@ class CliTests(unittest.TestCase):
         self.assertEqual(output, "")
         self.assertIn("unrecognized arguments", errors)
 
+    def test_auth_login_and_status_do_not_confirm_billing_implicitly(self):
+        for action in ("login", "status"):
+            with self.subTest(action=action), patch("flex_photo.subscription_auth.CredentialStore") as store, \
+                    patch("flex_photo.subscription_auth.sign_in") as login, \
+                    patch("flex_photo.subscription_auth.confirm_subscription_only") as confirm, \
+                    patch("flex_photo.subscription_auth.auth_status", return_value={
+                        "connected": True, "plan_usage_granted": True, "subscription_only_verified": False}):
+                status, output, errors = self.invoke(["auth", action])
+                self.assertEqual(status, 0)
+                self.assertFalse(json.loads(output)["subscription_only_verified"])
+                self.assertIsNone(json.loads(output)["subscription_only_verification_source"])
+                self.assertEqual(login.call_count, int(action == "login"))
+                confirm.assert_not_called()
+                if action == "status":
+                    self.assertEqual(errors, "")
+
+    def test_auth_confirmation_records_user_verification_without_signing_in_again(self):
+        with patch("flex_photo.subscription_auth.CredentialStore") as store, \
+                patch("flex_photo.subscription_auth.sign_in") as login, \
+                patch("flex_photo.subscription_auth.confirm_subscription_only") as confirm, \
+                patch("flex_photo.subscription_auth.auth_status", return_value={
+                    "connected": True, "plan_usage_granted": True, "subscription_only_verified": True}):
+            status, output, errors = self.invoke(["auth", "confirm-subscription-only"])
+        self.assertEqual(status, 0)
+        self.assertEqual(errors, "")
+        confirm.assert_called_once_with(store.return_value)
+        login.assert_not_called()
+        self.assertEqual(json.loads(output)["subscription_only_verification_source"],
+                         "user-verified-provider-configuration")
+
+    def test_auth_cancellation_and_failure_are_sanitized(self):
+        for error, expected in ((KeyboardInterrupt(), 130), (ValueError("private token text"), 1)):
+            with self.subTest(error=type(error).__name__), \
+                    patch("flex_photo.subscription_auth.CredentialStore"), \
+                    patch("flex_photo.subscription_auth.sign_in", side_effect=error):
+                status, output, errors = self.invoke(["auth", "login"])
+                self.assertEqual(status, expected)
+                self.assertEqual(output, "")
+                self.assertNotIn("private token text", errors)
+
     def test_process_forwards_explicit_assets_window_and_result_status(self):
         from flex_photo.batch import BatchResult
         from flex_photo.interpretation import InterpretationAssets
@@ -63,7 +103,8 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(errors, "")
                 process.assert_called_once_with(Path("source"), Path("destination"), Path("output"),
                     assets=InterpretationAssets(Path("engine"), Path("models"), "a" * 64),
-                    window=timedelta(seconds=12.5), resume=True, diagnostics=True, display_progress=True)
+                    window=timedelta(seconds=12.5), resume=True, diagnostics=True, display_progress=True,
+                    gpt_fallback=False)
 
     def test_invalid_processing_windows_are_argument_errors_before_processing(self):
         arguments = ["process", "source", "--destination", "destination", "--json-output", "output",

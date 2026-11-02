@@ -131,6 +131,26 @@ def validate_interpretation_assets(assets: InterpretationAssets) -> None:
         raise SharedAssetError("shared native runtime validation failed")
 
 
+def is_oversized_photo(path: Path, assets: InterpretationAssets) -> bool:
+    """Prove selected-primary exclusion inside native containment for legacy caches.
+
+    Unknown dimensions and native failures are never evidence of oversize.
+    """
+    _validate_assets(assets)
+    from ._interpretation_worker import run_bounded
+    try:
+        payload = run_bounded(path, assets, size_only=True)
+    except SharedAssetError:
+        raise
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        _validate_assets(assets)
+        return False
+    _validate_assets(assets)
+    if payload.get("shared_error"):
+        raise SharedAssetError(payload["shared_error"])
+    return payload == {"excluded": "primary_pixels"}
+
+
 def interpret_photo(path: Path, assets: InterpretationAssets, *, diagnostics: bool = False) -> PhotoInterpretation:
     """Interpret locally without modifying the original or publishing any files."""
     _validate_assets(assets)
@@ -147,6 +167,8 @@ def interpret_photo(path: Path, assets: InterpretationAssets, *, diagnostics: bo
     _validate_assets(assets)
     if payload.get("shared_error"):
         raise SharedAssetError(payload["shared_error"])
+    if payload == {"excluded": "primary_pixels"}:
+        return PhotoInterpretation(path, "excluded")
     if "error" in payload:
         return PhotoInterpretation(path, "unresolved", issues=(InterpretationIssue(
             path, payload["error"], "preserve/report/continue"),),

@@ -92,6 +92,12 @@ class Progress:
             self.evaluated = self.evaluated + 1 if evaluated is None else evaluated
             self.render()
 
+    def record_additional_work(self, seconds):
+        """Include new fallback work for an already-counted photo, never reuse."""
+        with self._lock:
+            self.processed_seconds += max(0., seconds)
+            self.render()
+
     def render(self, *, force=False):
         if not self.enabled:
             return

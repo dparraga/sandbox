@@ -63,6 +63,23 @@ class BatchTests(unittest.TestCase):
         for name in names:
             self.assertEqual((self.source / name).read_bytes(), self.saved[name])
 
+    def test_excluded_oversize_and_duplicate_are_silent_and_eligible_photos_continue(self):
+        capture = datetime(2031, 6, 12, 12, tzinfo=timezone.utc)
+        oversized = self.photo("a.heic", capture)
+        self.outcomes[oversized.name] = PhotoInterpretation(oversized, "excluded")
+        self.photo("b.heic", capture, payload=self.saved[oversized.name])
+        self.photo("eligible.heic", capture, {"trip_distance": ("12.0", "mi")})
+        result = self.run_batch()
+        self.assertTrue(result.complete)
+        self.assertEqual(result.counts["skipped"], 1)
+        self.assertEqual(result.counts["duplicates"], 1)
+        report = json.loads(result.report_path.read_bytes())
+        self.assertFalse(any(issue["item"] in ("a.heic", "b.heic") for issue in report["issues"]))
+        self.assertEqual([call.args[0].name for call in self.interpret.call_args_list], ["a.heic", "eligible.heic"])
+        self.assert_sources_preserved(["a.heic", "b.heic"])
+        self.assertEqual((self.destination / "eligible.heic").read_bytes(), self.saved["eligible.heic"])
+        self.assertEqual(self.month()["trips"][0]["fields"]["trip_distance"], {"value": "12.0", "unit": "mi"})
+
     def test_independent_latest_clear_zero_and_earlier_valid_duration(self):
         start = datetime(2031, 6, 12, 12, tzinfo=timezone.utc)
         self.photo("first.heic", start, {"trip_duration": ("02:16", None),

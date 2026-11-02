@@ -109,6 +109,95 @@ class ResumeTests(unittest.TestCase):
         self.assertEqual(failed.read_bytes(), self.originals[failed.name])
         self.assert_one_trip()
 
+    def test_legacy_size_failure_requires_current_proof_and_preserves_history(self):
+        failed = self.photo("a.heic")
+        self.photo("b.heic")
+        self.photo("c.heic")
+        self.outcomes[failed.name] = PhotoInterpretation(failed, "unresolved", issues=(
+            InterpretationIssue(failed, "primary pixel limit exceeded", "preserve/report/continue"),))
+        first = self.pause_after("a.heic")
+        old_report = first.report_path.read_bytes()
+        journal_path = self.output / ".flex-photo-checkpoint" / "results.jsonl"
+        old_journal = journal_path.read_bytes()
+        event = threading.Event()
+        def pause_next(path, assets):
+            event.set()
+            return self.outcomes[path.name]
+        self.interpret.side_effect = pause_next
+        with patch.object(batch, "is_oversized_photo", return_value=True) as proof:
+            resumed = self.run_batch(resume=True, pause_event=event)
+        proof.assert_called_once_with(failed, self.assets)
+        self.assertEqual(resumed.status, "paused")
+        self.assertTrue(journal_path.read_bytes().startswith(old_journal))
+        records = [json.loads(line)["data"] for line in journal_path.read_bytes().splitlines()]
+        self.assertEqual([record["result"]["layout"] for record in records if record["relative"] == "a.heic"],
+                         ["unresolved", "excluded"])
+        self.assertEqual(first.report_path.read_bytes(), old_report)
+        self.assertFalse(any(issue["item"] == "a.heic" for issue in self.report(resumed)["issues"]))
+        self.assertEqual(failed.read_bytes(), self.originals[failed.name])
+        self.interpret.side_effect = self._interpret
+        self.interpret.reset_mock()
+        completed = self.run_batch(resume=True)
+        self.assertTrue(completed.complete)
+        self.assertEqual([call.args[0].name for call in self.interpret.call_args_list], ["c.heic"])
+        self.assertFalse(any(issue["item"] == "a.heic" for issue in self.report(completed)["issues"]))
+
+    def test_legacy_size_error_without_reliable_proof_remains_failure(self):
+        failed = self.photo("a.heic")
+        self.photo("b.heic")
+        self.outcomes[failed.name] = PhotoInterpretation(failed, "unresolved", issues=(
+            InterpretationIssue(failed, "primary pixel limit exceeded", "preserve/report/continue"),))
+        self.pause_after("a.heic")
+        with patch.object(batch, "is_oversized_photo", return_value=False):
+            resumed = self.run_batch(resume=True)
+        self.assertFalse(resumed.complete)
+        self.assertTrue(any(issue["item"] == "a.heic" and issue["issue"] == "primary pixel limit exceeded"
+                            for issue in self.report(resumed)["issues"]))
+
+    def test_changed_cached_failure_becoming_oversized_has_no_current_item_entry(self):
+        changed = self.photo("a.heic")
+        self.photo("b.heic")
+        self.outcomes[changed.name] = PhotoInterpretation(changed, "unresolved", issues=(
+            InterpretationIssue(changed, "original malformed image", "preserve/report/continue"),))
+        first = self.pause_after("a.heic")
+        original_report = first.report_path.read_bytes()
+        changed.write_bytes(b"replacement authored oversized image")
+        self.outcomes[changed.name] = PhotoInterpretation(changed, "excluded")
+        resumed = self.run_batch(resume=True)
+        self.assertTrue(resumed.complete)
+        self.assertFalse(any(issue["item"] == "a.heic" for issue in self.report(resumed)["issues"]))
+        self.assertEqual(first.report_path.read_bytes(), original_report)
+        self.assertEqual(changed.read_bytes(), b"replacement authored oversized image")
+
+    def test_legacy_size_failure_does_not_change_pending_recovery_plan(self):
+        failed = self.photo("a.heic")
+        self.photo("b.heic")
+        self.outcomes[failed.name] = PhotoInterpretation(failed, "unresolved", issues=(
+            InterpretationIssue(failed, "primary pixel limit exceeded", "preserve/report/continue"),))
+        with patch.object(batch, "_copy_file", side_effect=AbruptTermination()):
+            with self.assertRaises(AbruptTermination):
+                self.run_batch()
+        state_path = self.output / ".flex-photo-state.json"
+        pending = json.loads(state_path.read_bytes())["pending"]
+        self.assertTrue(pending)
+        journal = self.output / ".flex-photo-checkpoint" / "results.jsonl"
+        old_journal = journal.read_bytes()
+        execute = batch._execute_plan
+        def check_plan(output, state, *args, **kwargs):
+            self.assertEqual(state["pending"], pending)
+            self.assertEqual(journal.read_bytes(), old_journal)
+            return execute(output, state, *args, **kwargs)
+        self.interpret.reset_mock()
+        with patch.object(batch, "is_oversized_photo", return_value=True), \
+             patch.object(batch, "_execute_plan", side_effect=check_plan):
+            resumed = self.run_batch(resume=True)
+        self.assertTrue(resumed.complete)
+        self.interpret.assert_not_called()
+        self.assertFalse(any(issue["item"] == "a.heic" for issue in self.report(resumed)["issues"]))
+        self.assertEqual(failed.read_bytes(), self.originals[failed.name])
+        self.assertEqual((self.destination / "b.heic").read_bytes(), self.originals["b.heic"])
+        self.assert_one_trip()
+
     def test_changed_input_invalidates_cache_and_preserves_previous_failure(self):
         changed = self.photo("a.heic")
         self.photo("b.heic")

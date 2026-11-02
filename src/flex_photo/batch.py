@@ -22,10 +22,11 @@ from .capture_fallback import (CaptureFallbackError, capture_inputs, capture_inp
                                resolve_capture, validate_capture_inputs)
 from .discovery import DiscoveryError, discover_heic, _is_link_or_reparse
 from .grouping import group_capture_times
-from .interpretation import (InterpretationAssets, SharedAssetError, interpret_photo,
+from .interpretation import (InterpretationAssets, SharedAssetError, interpret_photo, is_oversized_photo,
                              validate_interpretation_assets as _validate_assets)
 from .selection import latest_clear_indices
-from .metadata import CaptureMetadata
+from .metadata import CaptureMetadata, MetadataError, read_capture_metadata
+from .gpt_flow import SubscriptionLimitReached
 from .interpretation import PhotoInterpretation, FieldObservation, InterpretationIssue
 from .checkpoint import Checkpoint, _sync_directory
 from .progress import Progress
@@ -947,8 +948,11 @@ def _restore_interpretation(path, value):
             validate_capture_inputs(path, value["capture_inputs"])
         except CaptureFallbackError as error:
             raise BatchError("invalid cached capture context") from error
-    if value["layout"] not in ("trip_summary", "drive_info", "nonmatch", "unresolved"):
+    if value["layout"] not in ("trip_summary", "drive_info", "nonmatch", "unresolved", "excluded"):
         raise BatchError("invalid cached layout")
+    if value["layout"] == "excluded" and (value["observations"] or value["metadata"] is not None or value["issues"]
+                                         or value.get("capture_inputs") is not None):
+        raise BatchError("invalid cached exclusion")
     observations = []
     seen = set()
     for item in value["observations"]:
@@ -1014,9 +1018,36 @@ def _report_capture_source(relative, resolution, report):
                      incomplete=False, stage="capture")
 
 
-def _replay_checkpoint_issues(checkpoint, report, *, relatives=None):
+def _legacy_primary_failure(result):
+    return (result["layout"] == "unresolved" and not result["observations"]
+            and result["metadata"] is None and result["issues"] == [{
+                "reason": "primary pixel limit exceeded", "action": "preserve/report/continue"}])
+
+
+def _confirmed_legacy_exclusions(checkpoint, source, assets):
+    """Suppress a legacy error only after same-byte, bounded header proof.
+
+    The journal and pending effect plan remain intact. A missing, changed or
+    unreadable original retains normal recovery/failure handling.
+    """
+    excluded = set()
     for relative, item in checkpoint.results.items():
-        if relatives is not None and relative not in relatives:
+        if not _legacy_primary_failure(item["result"]):
+            continue
+        path = source / relative
+        try:
+            _safe_path(path, source)
+            if (_hash_file(path) == item["hash"] and is_oversized_photo(path, assets)
+                    and _hash_file(path) == item["hash"]):
+                excluded.add(relative)
+        except (OSError, BatchError):
+            continue
+    return excluded
+
+
+def _replay_checkpoint_issues(checkpoint, report, *, relatives=None, excluded=()):
+    for relative, item in checkpoint.results.items():
+        if relative in excluded or relatives is not None and relative not in relatives:
             continue
         result = item["result"]
         resolution = failure = None
@@ -1045,12 +1076,16 @@ def _replay_checkpoint_issues(checkpoint, report, *, relatives=None):
 
 def _process_batch(source: Path, destination: Path, output: Path, *, ownership, assets: InterpretationAssets,
                   window: timedelta = timedelta(minutes=3), resume=False, display_progress=False,
-                  pause_event=None, diagnostics=False) -> BatchResult:
+                  pause_event=None, diagnostics=False, gpt_fallback=False, cloud_client=None) -> BatchResult:
     """Interpret/checkpoint each safe unit before verified recoverable effects."""
     report = checkpoint = progress = None
     counts = {}
     event = pause_event if pause_event is not None else threading.Event()
     paused = False
+    fallback = None
+    cloud_pending = False
+    hold_all_cloud = False
+    cloud_reported = set()
     started_run = time.monotonic()
     try:
         if not isinstance(window, timedelta) or window < timedelta(0):
@@ -1072,6 +1107,10 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                   "executable": str(assets.tesseract_executable.absolute()),
                   "tessdata": str(assets.tessdata_directory.absolute()),
                   "executable_sha256": assets.executable_sha256, "recipe_version": 4}
+        if gpt_fallback:
+            config["gpt_fallback_version"] = 1
+        excluded_paths = set()
+        previous_issues = []
         saved = (output / ".flex-photo-checkpoint").exists()
         if saved or not state["pending"]:
             recovering = bool(state["pending"])
@@ -1083,11 +1122,14 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
             # Validate every saved scalar result even when effects recovery takes precedence.
             for relative, item in checkpoint.results.items():
                 _restore_interpretation(source / relative, item["result"])
+                if item["result"]["layout"] == "excluded":
+                    excluded_paths.add(relative)
+            excluded_paths.update(_confirmed_legacy_exclusions(checkpoint, source, assets))
             for item in checkpoint.history:
                 latest = checkpoint.results[item["relative"]]
                 if latest["hash"] != item["hash"]:
                     for issue in item["result"]["issues"]:
-                        report.issue(item["relative"], "previous input version: " + issue["reason"], "superseded by changed bytes; preserve prior failure record", incomplete=False, stage="resume")
+                        previous_issues.append((item["relative"], issue["reason"]))
             timing = _timing(checkpoint.timing)
             counts["candidates"] = len(candidates)
         else:
@@ -1108,13 +1150,17 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                     checkpoint.save(progress.snapshot())
                 except (OSError, ValueError) as error:
                     raise _CheckpointFailure("unable to checkpoint finalization timing: " + type(error).__name__) from error
+        if gpt_fallback and checkpoint:
+            from .gpt_flow import GptFallback
+            fallback = GptFallback(output, config, [p.as_posix() for p in candidates], assets,
+                                   cloud_client, resume=resume or bool(state["pending"]), boundary=boundary)
         with _pause_handler(event, progress):
             if state["pending"]:
                 if state["pending"]["roots"] != roots or state["pending"]["window_microseconds"] != config["window_microseconds"]:
                     raise BatchError("pending operation configuration changed")
                 # Moved sources need not exist; the saved effect plan verifies copies.
                 if checkpoint:
-                    _replay_checkpoint_issues(checkpoint, report)
+                    _replay_checkpoint_issues(checkpoint, report, excluded=excluded_paths)
                 progress.update(evaluated=len(candidates), stage="recovery", status="completing")
                 recovered_months = {trip["month"] for trip in state["pending"]["trips"]}
                 _execute_plan(output, state, expected, report, recovery=True, boundary=boundary)
@@ -1126,6 +1172,8 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
             else:
                 progress.update(stage="hashing")
                 unique = {}
+                duplicates = []
+                excluded_hashes = set()
                 committed_hashes = {digest for trip in state["committed"] for digest in trip["hashes"]}
                 for relative in candidates:
                     boundary()
@@ -1135,7 +1183,7 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                         digest = _hash_file(path)
                         if digest in unique:
                             counts["duplicates"] += 1
-                            report.issue(relative, "byte-identical input copy", "leave extra copy untouched", incomplete=False, stage="discovery")
+                            duplicates.append((digest, relative))
                         else:
                             unique[digest] = relative
                     except FileNotFoundError:
@@ -1172,31 +1220,86 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                         _safe_path(path, source)
                         cached = checkpoint.results.get(relative.as_posix())
                         if cached is not None and cached["hash"] == digest:
-                            interpreted = _restore_interpretation(path, cached["result"])
+                            interpreted = (PhotoInterpretation(path, "excluded") if relative.as_posix() in excluded_paths
+                                           else _restore_interpretation(path, cached["result"]))
                             evaluated += 1
                             progress.update(evaluated=evaluated)
                         else:
-                            if cached is not None:
-                                report.issue(relative, "input changed since checkpoint", "invalidate cached readings; reprocess changed bytes", incomplete=False, stage="resume")
-                                for issue in cached["result"]["issues"]:
-                                    report.issue(relative, "previous input version: " + issue["reason"], "superseded by changed bytes; preserve prior failure record", incomplete=False, stage="resume")
                             started = time.monotonic()
                             interpreted = interpret_photo(path, assets, diagnostics=True) if diagnostics else interpret_photo(path, assets)
                             diagnostic_log.record("interpretation", interpreted.diagnostic_trace)
                             if _hash_file(path) != digest:
                                 raise BatchError("source changed during interpretation")
+                            if fallback is not None:
+                                fallback.remember_primary(relative.as_posix(), digest, interpreted)
                             evaluated += 1
                             progress.record_photo(time.monotonic() - started, evaluated=evaluated)
                         context = None
                         if (interpreted.layout in ("trip_summary", "drive_info")
                                 and (interpreted.metadata is None or interpreted.metadata.date_time_original is None)):
                             context = capture_inputs(path)
-                        if cached is None or cached["hash"] != digest:
+                        if cached is None or cached["hash"] != digest or cached["result"]["layout"] != interpreted.layout:
                             _checkpoint_photo(checkpoint, relative.as_posix(), digest, interpreted, progress.snapshot(), context)
                         elif cached["result"].get("capture_inputs") != context:
                             if cached["result"].get("capture_inputs") is not None:
                                 report.issue(relative, "file creation timestamp changed since checkpoint", "revalidate capture fallback without repeating OCR", incomplete=False, stage="resume")
                             _checkpoint_photo(checkpoint, relative.as_posix(), digest, interpreted, progress.snapshot(), context)
+                        if interpreted.layout == "excluded":
+                            excluded_paths.add(relative.as_posix())
+                            excluded_hashes.add(digest)
+                            counts["skipped"] += 1
+                            continue
+                        excluded_paths.discard(relative.as_posix())
+                        if fallback is not None:
+                            progress.update(stage="GPT fallback", evaluated=max(0, evaluated - 1))
+                            fallback_started = time.monotonic()
+                            try:
+                                interpreted, pending_cloud, cloud_reason = fallback.recover(
+                                    path, relative.as_posix(), digest, interpreted)
+                            finally:
+                                progress.record_additional_work(time.monotonic() - fallback_started)
+                            progress.update(evaluated=evaluated)
+                            if _hash_file(path) != digest:
+                                raise BatchError("source changed during fallback")
+                            if pending_cloud:
+                                cloud_pending = True
+                                counts["skipped"] += 1
+                                report.issue(relative, "requested fields pending GPT fallback",
+                                             "preserve original and completed local results; resume when access is available",
+                                             stage="fallback")
+                                if cloud_reason not in cloud_reported:
+                                    cloud_reported.add(cloud_reason)
+                                    reason, action = fallback.failure_description(str(cloud_reason))
+                                    report.issue("GPT fallback", reason, action + "; first affected photo=" + str(relative), stage="fallback")
+                                # Pending members still participate in the approved
+                                # first-to-last partition, preventing partial trips.
+                                try:
+                                    metadata = interpreted.metadata
+                                    if interpreted.layout == "unresolved" and metadata is None:
+                                        metadata = read_capture_metadata(path)
+                                    pending_capture = resolve_capture(path, metadata, inputs=context)
+                                    records.append({"path": relative.as_posix(), "hash": digest,
+                                        "capture": pending_capture.capture, "spelling": pending_capture.spelling,
+                                        "capture_inputs": pending_capture.inputs,
+                                        "observations": interpreted.observations, "cloud_pending": True})
+                                except (MetadataError, CaptureFallbackError, CaptureTimeError, ValueError, OverflowError):
+                                    # Without a time, independence cannot be proven.
+                                    hold_all_cloud = True
+                                continue
+                            if cloud_reason is not None:
+                                reason, action = fallback.failure_description(str(cloud_reason))
+                                report.issue(relative, reason,
+                                             action, stage="fallback")
+                            if interpreted.layout in ("trip_summary", "drive_info"):
+                                context = (capture_inputs(path) if interpreted.metadata is None
+                                           or interpreted.metadata.date_time_original is None else None)
+                            _checkpoint_photo(checkpoint, relative.as_posix(), digest, interpreted,
+                                              progress.snapshot(), context)
+                            progress.update(stage="decoding/OCR")
+                        if cached is not None and cached["hash"] != digest:
+                            report.issue(relative, "input changed since checkpoint", "invalidate cached readings; reprocess changed bytes", incomplete=False, stage="resume")
+                            for issue in cached["result"]["issues"]:
+                                previous_issues.append((relative.as_posix(), issue["reason"]))
                         resolution = capture_failure = None
                         if interpreted.layout in ("trip_summary", "drive_info"):
                             try:
@@ -1244,6 +1347,9 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                         progress.update(evaluated=evaluated)
                         report.issue(relative, "unexpected photo processing failure: " + type(error).__name__, "leave untouched; continue", stage="preflight")
                     report.flush_due()
+                for digest, relative in duplicates:
+                    if digest not in excluded_hashes:
+                        report.issue(relative, "byte-identical input copy", "leave extra copy untouched", incomplete=False, stage="discovery")
                 progress.update(stage="grouping", status="completing")
                 boundary()
                 groups = [[records[index] for index in group] for group in group_capture_times([item["capture"] for item in records], window)]
@@ -1252,6 +1358,13 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                 reserved = set()
                 rewrite_months_needed = set()
                 for index, group in enumerate(groups):
+                    if hold_all_cloud or any(item.get("cloud_pending") for item in group):
+                        for item in group:
+                            if not item.get("cloud_pending"):
+                                counts["skipped"] += 1
+                                report.issue(item["path"], "trip has pending cloud work",
+                                             "retain complete trip membership for resume", stage="fallback")
+                        continue
                     if index not in eligible:
                         counts["skipped"] += len(group)
                         for item in group:
@@ -1283,14 +1396,29 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                     _execute_plan(output, state, expected, report, recovery=False, boundary=boundary)
                 if state["pending"]:
                     report.value["status"] = "incomplete"
+            for relative, reason in previous_issues:
+                if relative not in excluded_paths:
+                    report.issue(relative, "previous input version: " + reason, "superseded by changed bytes; preserve prior failure record", incomplete=False, stage="resume")
             progress.update(stage="report", status="completing")
+            if fallback is not None and fallback.has_pending():
+                cloud_pending = True
+                report.value["status"] = "incomplete"
             # Remove extraction checkpoint only after all effects are durably reconciled.
-            if checkpoint and not state["pending"]:
+            if checkpoint and not state["pending"] and not cloud_pending:
                 report.finalized = True
                 report.write()
                 checkpoint.finish()
-    except _Paused:
+                if fallback is not None:
+                    fallback.finish()
+    except (_Paused, SubscriptionLimitReached) as pause:
         paused = True
+        if isinstance(pause, SubscriptionLimitReached):
+            if report:
+                reason, action = fallback.failure_description('quota')
+                report.issue("GPT fallback", "subscription limit reached; " + reason,
+                             action, incomplete=False, stage="fallback")
+            if progress:
+                progress.update(stage="subscription limit reached; resume manually", status="pausing")
         if progress:
             progress.close(status="paused")
         if checkpoint:
@@ -1323,8 +1451,9 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
 
 def process_batch(source: Path, destination: Path, output: Path, *, assets: InterpretationAssets,
                   window: timedelta = timedelta(minutes=3), resume=False, display_progress=False,
-                  pause_event=None, diagnostics=False) -> BatchResult:
+                  pause_event=None, diagnostics=False, gpt_fallback=False, cloud_client=None) -> BatchResult:
     with ExitStack() as ownership:
         return _process_batch(source, destination, output, ownership=ownership, assets=assets,
                               window=window, resume=resume, display_progress=display_progress,
-                              pause_event=pause_event, diagnostics=diagnostics)
+                              pause_event=pause_event, diagnostics=diagnostics,
+                              gpt_fallback=gpt_fallback, cloud_client=cloud_client)

@@ -14,6 +14,33 @@ class QuotaPauseTests(unittest.TestCase):
     photo = fixtures.GptBatchIntegrationTests.photo
     run_batch = fixtures.GptBatchIntegrationTests.run_batch
 
+    def test_report_explains_service_rejection_once_and_preserves_pending_trip(self):
+        self.photo('a.heic', 0, unresolved=True)
+        self.photo('b.heic', 1)
+        self.photo('independent.heic', 10)
+        client = Mock()
+        client.recognize.side_effect = KnownRequestRejected('unavailable', diagnostic={
+            'operation': 'inference', 'http_status': 503,
+            'service_code': 'subscription_sharing_usage_unavailable',
+            'response_shape': 'error_object', 'request_id': 'req_' + 'b' * 32,
+            'message': 'Authorization Bearer private-token'})
+        result = self.run_batch(client)
+        self.assertEqual(result.status, 'incomplete')
+        self.assertEqual(result.counts['moved'], 1)
+        self.assertTrue((self.source / 'a.heic').exists())
+        self.assertTrue((self.source / 'b.heic').exists())
+        text = result.report_path.read_text()
+        report = json.loads(text)
+        service = [x for x in report['issues'] if x['issue'].startswith('fallback unavailable:')]
+        self.assertEqual(len(service), 1)
+        self.assertIn('http_status=503', service[0]['issue'])
+        self.assertIn('service_code=subscription_sharing_usage_unavailable', service[0]['issue'])
+        self.assertIn('request_state=rejected', service[0]['issue'])
+        self.assertIn('preserve credentials', service[0]['action'])
+        self.assertIn('req_' + 'b' * 32, service[0]['action'])
+        self.assertNotIn('private-token', text)
+        client.recognize.assert_called_once()
+
     def assert_paused_without_effects(self, result):
         self.assertEqual(result.status, "paused")
         for name, original in self.originals.items():

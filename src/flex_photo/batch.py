@@ -1269,8 +1269,8 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                                              stage="fallback")
                                 if cloud_reason not in cloud_reported:
                                     cloud_reported.add(cloud_reason)
-                                    report.issue("GPT fallback", "fallback unavailable: " + str(cloud_reason),
-                                                 "no paid path or retry; preserve request checkpoints", stage="fallback")
+                                    reason, action = fallback.failure_description(str(cloud_reason))
+                                    report.issue("GPT fallback", reason, action + "; first affected photo=" + str(relative), stage="fallback")
                                 # Pending members still participate in the approved
                                 # first-to-last partition, preventing partial trips.
                                 try:
@@ -1287,8 +1287,9 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
                                     hold_all_cloud = True
                                 continue
                             if cloud_reason is not None:
-                                report.issue(relative, "GPT fallback response invalid",
-                                             "retain local readings; reject fallback candidate", stage="fallback")
+                                reason, action = fallback.failure_description(str(cloud_reason))
+                                report.issue(relative, reason,
+                                             action, stage="fallback")
                             if interpreted.layout in ("trip_summary", "drive_info"):
                                 context = (capture_inputs(path) if interpreted.metadata is None
                                            or interpreted.metadata.date_time_original is None else None)
@@ -1413,9 +1414,9 @@ def _process_batch(source: Path, destination: Path, output: Path, *, ownership, 
         paused = True
         if isinstance(pause, SubscriptionLimitReached):
             if report:
-                report.issue("GPT fallback", "subscription limit reached",
-                             "paused; resume manually when subscription allowance is available",
-                             incomplete=False, stage="fallback")
+                reason, action = fallback.failure_description('quota')
+                report.issue("GPT fallback", "subscription limit reached; " + reason,
+                             action, incomplete=False, stage="fallback")
             if progress:
                 progress.update(stage="subscription limit reached; resume manually", status="pausing")
         if progress:

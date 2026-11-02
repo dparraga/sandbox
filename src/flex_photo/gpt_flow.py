@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 
 from .checkpoint import Checkpoint, _bytes, _ordinary
-from .cloud_access import CloudClient, CloudUnavailable, KnownRequestRejected, MODEL
+from .cloud_access import CloudClient, CloudUnavailable, KnownRequestRejected, MODEL, sanitize_diagnostic
 from .fallback import merge_recoveries, validate_response
 from .interpretation import InterpretationIssue, SharedAssetError
 
@@ -61,6 +61,50 @@ class GptFallback:
         self.client = client
         self.boundary = boundary
         self.blocked_reason = None
+        self.blocked_diagnostic = {}
+        self.last_diagnostic = {}
+
+    def failure_description(self, reason):
+        """Concise public explanation from fixed, credential-free metadata only."""
+        diagnostic = sanitize_diagnostic(self.last_diagnostic)
+        context = '; '.join(f'{key}={value}' for key, value in diagnostic.items()
+                            if key != 'request_id')
+        issue = 'GPT fallback response invalid' if reason == 'invalid_response' else 'fallback unavailable: ' + reason
+        issue += '; ' + context if context else '; diagnostic=not_recorded'
+        code = diagnostic.get('service_code')
+        if reason == 'unknown_outcome' or diagnostic.get('request_state') == 'unknown':
+            action = 'outcome unknown; preserve checkpoints for reconciliation; do not repeat request'
+        elif reason == 'quota':
+            action = 'paused; check ChatGPT Settings > Usage; resume manually when allowance is available'
+        elif code in ('subscription_sharing_user_not_eligible', 'subscription_sharing_route_not_supported',
+                       'subscription_sharing_unsupported_capability', 'invalid_client'):
+            action = 'verify app/account permission and request configuration; correct cause before manual resume'
+        elif reason == 'authentication':
+            action = 'check auth status and account permission; sign in again only if connection requires it; then resume manually'
+        elif reason == 'included_only_unverified':
+            action = 'verify subscription-only provider settings and current connection confirmation before manual resume'
+        elif reason in ('invalid_response', 'saved_request_requires_reconciliation'):
+            action = 'preserve completed response/checkpoints for inspection; do not repeat completed request'
+        elif reason == 'local_crop_failure':
+            action = 'inspect local crop/resource failure before manual resume; no image sent'
+        elif reason == 'model':
+            action = 'verify exact GPT-6 Luna availability; no model substitution; resume manually after resolution'
+        elif code == 'rate_limit_exceeded' or diagnostic.get('http_status') == 429:
+            action = 'service rate/admission limit; this is not confirmed subscription exhaustion; resume manually after resolution'
+        else:
+            action = 'preserve credentials/checkpoints; resolve reported service/network/app failure before manual resume; no automatic retry'
+        if diagnostic.get('request_id'):
+            action += '; request_id=' + diagnostic['request_id']
+        return issue, action
+
+    def _block(self, reason, diagnostic=None):
+        self.blocked_reason = reason
+        self.blocked_diagnostic = sanitize_diagnostic(diagnostic)
+        self.last_diagnostic = self.blocked_diagnostic.copy()
+
+    def _failure(self, state, error, request_state):
+        self.last_diagnostic = sanitize_diagnostic(dict(error.diagnostic, request_state=request_state))
+        state['failure'] = self.last_diagnostic
 
     def _save(self, relative, digest, state):
         self.journal.append(relative, digest, state, {})
@@ -74,7 +118,7 @@ class GptFallback:
                for entry in state['requests'].values()):
             state['pending'] = True
             self._save(relative, saved['hash'], state)
-            self.blocked_reason = 'unknown_outcome'
+            self._block('unknown_outcome', dict(state.get('failure', {}), request_state='unknown'))
             return True
         # Preserve the append-only history, but obsolete known work cannot keep
         # a changed source permanently pending or supply its field readings.
@@ -98,6 +142,7 @@ class GptFallback:
             self._save(relative, digest, state)
 
     def recover(self, path, relative, digest, photo):
+        self.last_diagnostic = {}
         if self._changed_source(relative, digest):
             return photo, True, 'unknown_outcome'
         if photo.layout not in ('trip_summary', 'drive_info', 'unresolved'):
@@ -112,7 +157,7 @@ class GptFallback:
                 for entry in saved['result']['requests'].values()):
             saved['result']['pending'] = True
             self._save(relative, digest, saved['result'])
-            self.blocked_reason = 'unknown_outcome'
+            self._block('unknown_outcome', dict(saved['result'].get('failure', {}), request_state='unknown'))
             return photo, True, 'unknown_outcome'
         from ._interpretation_worker import run_bounded
         baseline = {'layout': photo.layout, 'observations': [asdict(o) for o in photo.observations],
@@ -139,7 +184,9 @@ class GptFallback:
             return photo, False, None
         saved = self.journal.results.get(relative)
         state = saved['result'] if saved and saved['hash'] == digest else {'version': 1, 'requests': {}, 'candidates': {}, 'pending': True}
-        if (not isinstance(state, dict) or set(state) != {'version', 'requests', 'candidates', 'pending'}
+        if (not isinstance(state, dict) or set(state) not in (
+                {'version', 'requests', 'candidates', 'pending'},
+                {'version', 'requests', 'candidates', 'pending', 'failure'})
                 or state['version'] != 1 or not isinstance(state['requests'], dict)
                 or not isinstance(state['candidates'], dict)):
             raise ValueError('invalid saved GPT state')
@@ -178,13 +225,14 @@ class GptFallback:
                         # Never guess settings for an old opaque key and risk
                         # repeating an already completed but unprovable request.
                         pending, reason = True, 'saved_request_requires_reconciliation'
-                        self.blocked_reason = reason
+                        self._block(reason)
                         break
                 if entry is not None:
                     if entry.get('status') == 'completed' and isinstance(entry.get('response'), dict):
                         responses.append(entry['response'])
                         continue
                     if entry.get('status') == 'invalid':
+                        self.last_diagnostic = sanitize_diagnostic(entry.get('diagnostic'))
                         reason = 'invalid_response'
                         break
                     if entry.get('status') in ('quota', 'rejected'):
@@ -194,20 +242,22 @@ class GptFallback:
                         raise ValueError('invalid saved GPT request state')
                     else:
                         pending, reason = True, 'unknown_outcome'
-                        self.blocked_reason = reason
+                        self._block(reason, dict(entry.get('diagnostic', {}), request_state='unknown'))
                         break
                 if self.blocked_reason is not None:
                     pending, reason = True, self.blocked_reason
+                    self.last_diagnostic = self.blocked_diagnostic.copy()
                     break
                 try:
                     self.client.check_available()
                 except CloudUnavailable as error:
+                    self._failure(state, error, 'not_sent')
                     if error.category == 'quota':
                         state['pending'] = True
                         self._save(relative, digest, state)
                         raise SubscriptionLimitReached() from None
                     pending, reason = True, error.category
-                    self.blocked_reason = reason
+                    self._block(reason, self.last_diagnostic)
                     break
                 with Path(path).open('rb') as source:
                     if hashlib.file_digest(source, 'sha256').hexdigest() != digest:
@@ -218,22 +268,29 @@ class GptFallback:
                 try:
                     response = self.client.recognize(request)
                 except CloudUnavailable as error:
+                    request_state = ('rejected' if error.category == 'quota' or isinstance(error, KnownRequestRejected)
+                                     else 'invalid_response' if error.category == 'invalid_response' else 'unknown')
+                    # A wrapper can prove a pre-dispatch failure more specifically.
+                    if error.diagnostic.get('request_state') == 'not_sent':
+                        request_state = 'not_sent'
+                    self._failure(state, error, request_state)
                     if error.category == 'quota':
-                        state['requests'][key] = {'status': 'quota'}
+                        state['requests'][key] = {'status': 'quota', 'diagnostic': self.last_diagnostic}
                         state['pending'] = True
                         self._save(relative, digest, state)
                         raise SubscriptionLimitReached() from None
                     elif error.category == 'invalid_response':
-                        state['requests'][key] = {'status': 'invalid'}
+                        state['requests'][key] = {'status': 'invalid', 'diagnostic': self.last_diagnostic}
                         reason = 'invalid_response'
                     elif isinstance(error, KnownRequestRejected):
-                        state['requests'][key] = {'status': 'rejected', 'category': error.category}
+                        state['requests'][key] = {'status': 'rejected', 'category': error.category,
+                                                  'diagnostic': self.last_diagnostic}
                         pending, reason = True, error.category
-                        self.blocked_reason = reason
+                        self._block(reason, self.last_diagnostic)
                     else:
-                        state['requests'][key] = {'status': 'unknown'}
+                        state['requests'][key] = {'status': 'unknown', 'diagnostic': self.last_diagnostic}
                         pending, reason = True, error.category
-                        self.blocked_reason = reason
+                        self._block(reason, self.last_diagnostic)
                     self._save(relative, digest, state)
                     break
                 # Keep only the requested scalar response schema, never arbitrary model prose.
@@ -245,7 +302,9 @@ class GptFallback:
                            and all(value is None or isinstance(value, str) and len(value) <= 256
                                    for name, value in response.items() if name not in ('readable', 'view_id')))
                 if not bounded:
-                    state['requests'][key] = {'status': 'invalid'}
+                    self._failure(state, CloudUnavailable('invalid_response', diagnostic={'detail': 'schema'}),
+                                  'invalid_response')
+                    state['requests'][key] = {'status': 'invalid', 'diagnostic': self.last_diagnostic}
                     reason = 'invalid_response'
                 else:
                     state['requests'][key] = {'status': 'completed', 'response': response}

@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 import time
 from typing import Literal, Protocol
 from urllib.error import HTTPError, URLError
@@ -14,15 +15,88 @@ CloudCategory = Literal[
     "model", "unavailable", "unknown_outcome", "invalid_response",
 ]
 _CATEGORIES = frozenset(CloudCategory.__args__)
+_DIAGNOSTIC_ENUMS = {
+    "operation": {"availability", "credentials", "token_refresh", "token_validation", "model_catalog", "inference"},
+    "response_shape": {"error_object", "detail_only", "json_object", "non_object", "non_json", "too_large", "empty"},
+    "request_state": {"not_sent", "rejected", "unknown", "invalid_response"},
+    "detail": {"json", "unexpected_shape", "schema", "incomplete", "empty_output", "noncompleted_status",
+               "request_shape", "refusal", "unexpected_output"},
+}
+_SERVICE_CODES = {
+    "subscription_sharing_usage_limit_exceeded", "subscription_sharing_usage_unavailable",
+    "subscription_sharing_user_unavailable", "subscription_sharing_user_not_eligible",
+    "subscription_sharing_unsupported_capability", "subscription_sharing_route_not_supported",
+    "subscription_sharing_invalid_user", "chatpass_v2_scope_not_authorized",
+    "chatpass_v2_invalid_authorization_context", "rate_limit_exceeded", "invalid_token",
+    "invalid_client", "invalid_grant", "invalid_refresh_token", "token_expired",
+    "refresh_token_expired", "refresh_token_invalidated", "refresh_token_reused",
+    "model_not_found", "model_not_available", "insufficient_quota", "server_error",
+    "internal_server_error", "invalid_request_error", "permission_denied", "unrecognized",
+}
+_EXCEPTION_TYPES = {
+    "OSError", "PermissionError", "FileNotFoundError", "TimeoutError", "URLError", "HTTPError",
+    "ConnectionError", "ConnectionResetError", "SSLError", "ValueError", "TypeError", "KeyError",
+    "AttributeError", "UnicodeError", "UnicodeDecodeError", "JSONDecodeError", "RecursionError",
+    "RuntimeError", "InvalidTokenError", "InvalidSignatureError", "ExpiredSignatureError",
+    "InvalidAudienceError", "InvalidIssuerError", "InvalidIssuedAtError", "ImmatureSignatureError",
+    "MissingRequiredClaimError", "DecodeError", "InvalidAlgorithmError", "PyJWKError", "other",
+}
+
+
+def sanitize_diagnostic(value):
+    """Copy only bounded, nonsecret diagnostic fields; never retain raw messages."""
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for key, choices in _DIAGNOSTIC_ENUMS.items():
+        item = value.get(key)
+        if isinstance(item, str) and item in choices:
+            result[key] = item
+    status = value.get("http_status")
+    if type(status) is int and 100 <= status <= 599:
+        result["http_status"] = status
+    if "service_code" in value:
+        code = value["service_code"]
+        result["service_code"] = code if isinstance(code, str) and code in _SERVICE_CODES else "unrecognized"
+    request_id = value.get("request_id")
+    if isinstance(request_id, str) and re.fullmatch(r"req_[0-9a-fA-F]{32}", request_id):
+        result["request_id"] = request_id
+    if "exception_type" in value:
+        name = value["exception_type"]
+        result["exception_type"] = name if isinstance(name, str) and name in _EXCEPTION_TYPES else "other"
+    return result
+
+
+def _response_diagnostic(value, *, operation, http_status=None, request_id=None):
+    diagnostic = {"operation": operation, "http_status": http_status, "request_id": request_id}
+    if isinstance(value, (bytes, str)):
+        if not value:
+            return sanitize_diagnostic({**diagnostic, "response_shape": "empty"})
+        if len(value) > 65536:
+            return sanitize_diagnostic({**diagnostic, "response_shape": "too_large"})
+        try:
+            value = json.loads(value)
+        except (ValueError, UnicodeError, RecursionError):
+            return sanitize_diagnostic({**diagnostic, "response_shape": "non_json"})
+    if not isinstance(value, dict):
+        return sanitize_diagnostic({**diagnostic, "response_shape": "non_object"})
+    error = value.get("error")
+    diagnostic["response_shape"] = ("error_object" if isinstance(error, dict) else
+                                     "detail_only" if "detail" in value and "error" not in value else "json_object")
+    code = error.get("code") if isinstance(error, dict) else error if error is not None else value.get("code")
+    if code is not None:
+        diagnostic["service_code"] = code
+    return sanitize_diagnostic(diagnostic)
 
 
 class CloudUnavailable(Exception):
     """Safe report category; never retain transport text or private request data."""
 
-    def __init__(self, category: CloudCategory):
+    def __init__(self, category: CloudCategory, *, diagnostic=None):
         if category not in _CATEGORIES:
             raise ValueError("Unknown cloud failure category")
         self.category = category
+        self.diagnostic = sanitize_diagnostic(diagnostic)
         super().__init__(category)
 
 
@@ -39,11 +113,12 @@ InvalidResponseDetail = Literal[
 class InvalidResponse(CloudUnavailable):
     """Bounded diagnostic reason; contains no provider text or private content."""
 
-    def __init__(self, detail: InvalidResponseDetail):
+    def __init__(self, detail: InvalidResponseDetail, *, diagnostic=None):
         if detail not in InvalidResponseDetail.__args__:
             raise ValueError("Unknown invalid response detail")
         self.detail = detail
-        super().__init__("invalid_response")
+        super().__init__("invalid_response", diagnostic={"request_state": "not_sent" if detail == "request_shape" else "invalid_response",
+                                                        **sanitize_diagnostic(diagnostic), "detail": detail})
 
 
 class CloudTransport(Protocol):
@@ -101,16 +176,18 @@ class CloudClient:
             raise CloudUnavailable("included_only_unverified")
         try:
             self._transport.check_available()
-        except CloudUnavailable:
+        except CloudUnavailable as error:
+            error.diagnostic = sanitize_diagnostic({"operation": "availability", **error.diagnostic})
             raise
-        except Exception:
-            raise CloudUnavailable("unavailable") from None
+        except Exception as error:
+            raise CloudUnavailable("unavailable", diagnostic={"operation": "availability",
+                                   "exception_type": type(error).__name__}) from None
 
     def recognize(self, request: dict) -> dict:
         try:
             self.check_available()
         except CloudUnavailable as error:
-            raise KnownRequestRejected(error.category) from None
+            raise KnownRequestRejected(error.category, diagnostic={**error.diagnostic, "request_state": "not_sent"}) from None
         if (not isinstance(request, dict) or request.get("model") != MODEL
                 or request.get("store") is not False
                 or request.get("stream") is not True
@@ -120,10 +197,15 @@ class CloudClient:
             raw = self._transport.recognize(request)
         except CloudUnavailable:
             raise
-        except Exception:
+        except Exception as error:
             # Once dispatch starts, even a timeout may have completed remotely.
-            raise CloudUnavailable("unknown_outcome") from None
-        return parse_response(raw)
+            raise CloudUnavailable("unknown_outcome", diagnostic={"operation": "inference",
+                                   "exception_type": type(error).__name__}) from None
+        try:
+            return parse_response(raw)
+        except InvalidResponse as error:
+            error.diagnostic = sanitize_diagnostic({"operation": "inference", **error.diagnostic})
+            raise
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -131,19 +213,20 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def _service_failure(error, status=None):
+def _service_failure(error, status=None, *, diagnostic=None):
+    diagnostic = {**sanitize_diagnostic(diagnostic), "request_state": "rejected"}
     code = error.get("code") if isinstance(error, dict) else None
     if code == "subscription_sharing_usage_limit_exceeded":
-        return CloudUnavailable("quota")
+        return CloudUnavailable("quota", diagnostic=diagnostic)
     if code in ("subscription_sharing_invalid_user", "chatpass_v2_scope_not_authorized",
                 "chatpass_v2_invalid_authorization_context") or status == 401:
-        return KnownRequestRejected("authentication")
+        return KnownRequestRejected("authentication", diagnostic=diagnostic)
     if code in ("model_not_found", "model_not_available"):
-        return KnownRequestRejected("model")
+        return KnownRequestRejected("model", diagnostic=diagnostic)
     if status is not None and status >= 500 and code not in (
             "subscription_sharing_usage_unavailable", "subscription_sharing_user_unavailable"):
-        return CloudUnavailable("unknown_outcome")
-    return KnownRequestRejected("unavailable")
+        return CloudUnavailable("unknown_outcome", diagnostic={**diagnostic, "request_state": "unknown"})
+    return KnownRequestRejected("unavailable", diagnostic=diagnostic)
 
 
 def _stream_lines(response):
@@ -189,9 +272,11 @@ class SubscriptionTransport:
         self.billing_guard.check_available()
 
     def _open(self, request, *, dispatched=False):
+        operation = "inference" if dispatched else "model_catalog"
         try:
             return self._opener.open(request, timeout=60)
         except HTTPError as error:
+            raw = b""
             try:
                 raw = error.read(65537)
                 body = parse_response(raw.decode()) if len(raw) <= 65536 else {}
@@ -199,9 +284,12 @@ class SubscriptionTransport:
                 body = {}
             finally:
                 error.close()
-            raise _service_failure(body.get("error"), error.code) from None
-        except (URLError, OSError, TimeoutError):
-            raise CloudUnavailable("unknown_outcome" if dispatched else "network") from None
+            diagnostic = _response_diagnostic(raw, operation=operation, http_status=error.code,
+                                               request_id=error.headers.get("x-request-id") if error.headers else None)
+            raise _service_failure(body.get("error"), error.code, diagnostic=diagnostic) from None
+        except (URLError, OSError, TimeoutError) as error:
+            raise CloudUnavailable("unknown_outcome" if dispatched else "network", diagnostic={
+                "operation": operation, "exception_type": type(error).__name__}) from None
 
     def check_available(self):
         self._permission()
@@ -223,14 +311,19 @@ class SubscriptionTransport:
                     isinstance(item, dict) and item.get("slug") == MODEL for item in models):
                 raise CloudUnavailable("model")
             self._catalog_checked = True
-        except (OSError, UnicodeError):
-            raise CloudUnavailable("network") from None
+        except CloudUnavailable as error:
+            error.diagnostic = sanitize_diagnostic({"operation": "model_catalog", **error.diagnostic})
+            raise
+        except (OSError, UnicodeError) as error:
+            raise CloudUnavailable("network", diagnostic={"operation": "model_catalog",
+                                   "exception_type": type(error).__name__}) from None
 
     def recognize(self, request):
         try:
             self.check_available()
         except CloudUnavailable as error:
-            raise KnownRequestRejected(error.category) from None
+            raise KnownRequestRejected(error.category, diagnostic={"operation": "inference", **error.diagnostic,
+                                                                  "request_state": "not_sent"}) from None
         # Defend direct transport use as well as CloudClient callers.
         if (not isinstance(request, dict) or request.get("model") != MODEL or request.get("store") is not False
                 or request.get("stream") is not True or not isinstance(request.get("input"), list)):
@@ -239,13 +332,19 @@ class SubscriptionTransport:
         try:
             token = access_token(self.store)
         except CloudUnavailable as error:
-            raise KnownRequestRejected(error.category) from None
+            raise KnownRequestRejected(error.category, diagnostic={"operation": "inference", **error.diagnostic,
+                                                                  "request_state": "not_sent"}) from None
         wire = Request("https://api.openai.com/v1/responses",
                        data=json.dumps(request, allow_nan=False).encode(),
                        headers={"Authorization": "Bearer " + token,
                                 "Content-Type": "application/json", "Accept": "text/event-stream"})
+        stream_diagnostic = {"operation": "inference"}
         try:
             with self._open(wire, dispatched=True) as response:
+                headers = getattr(response, "headers", None)
+                stream_diagnostic = sanitize_diagnostic({"operation": "inference",
+                    "http_status": getattr(response, "status", None),
+                    "request_id": headers.get("x-request-id") if headers else None})
                 data = []
                 streamed = {}
                 output_problem = None
@@ -257,7 +356,8 @@ class SubscriptionTransport:
                     try:
                         event = parse_response("\n".join(data))
                     except CloudUnavailable:
-                        raise CloudUnavailable("unknown_outcome") from None
+                        diagnostic = _response_diagnostic("\n".join(data), operation="inference")
+                        raise CloudUnavailable("unknown_outcome", diagnostic={**stream_diagnostic, **diagnostic}) from None
                     data = []
                     kind = event.get("type")
                     result = event.get("response", {})
@@ -291,9 +391,11 @@ class SubscriptionTransport:
                         elif not isinstance(part, dict) or part.get("type") not in ("output_text", "reasoning_text"):
                             output_problem = "unexpected_output"
                     if kind == "response.failed":
-                        raise _service_failure(result.get("error"))
+                        diagnostic = _response_diagnostic({"error": result.get("error")}, operation="inference")
+                        raise _service_failure(result.get("error"), diagnostic={**stream_diagnostic, **diagnostic})
                     if kind == "error":
-                        raise _service_failure(event)
+                        diagnostic = _response_diagnostic({"error": event}, operation="inference")
+                        raise _service_failure(event, diagnostic={**stream_diagnostic, **diagnostic})
                     if kind == "response.incomplete":
                         raise InvalidResponse("incomplete")
                     if kind != "response.completed":
@@ -341,5 +443,9 @@ class SubscriptionTransport:
                     if not texts or not any(texts):
                         raise InvalidResponse("empty_output")
                     return "".join(texts)
-        except (OSError, UnicodeError, TypeError, AttributeError):
-            raise CloudUnavailable("unknown_outcome") from None
+        except CloudUnavailable as error:
+            error.diagnostic = sanitize_diagnostic({**stream_diagnostic, **error.diagnostic})
+            raise
+        except (OSError, UnicodeError, TypeError, AttributeError) as error:
+            raise CloudUnavailable("unknown_outcome", diagnostic={**stream_diagnostic,
+                                   "exception_type": type(error).__name__}) from None

@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from flex_photo.cloud_access import (
     CloudClient, CloudUnavailable, InvalidResponse, KnownRequestRejected, MODEL,
-    SubscriptionTransport, parse_response,
+    SubscriptionTransport, parse_response, sanitize_diagnostic,
 )
 
 
@@ -55,6 +55,8 @@ class CloudAccessTests(unittest.TestCase):
         self.assertEqual(str(caught.exception), "unavailable")
         self.assertIsInstance(caught.exception, KnownRequestRejected)
         self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(caught.exception.diagnostic, {"operation": "availability",
+                         "exception_type": "RuntimeError", "request_state": "not_sent"})
         transport.recognize.assert_not_called()
 
     def test_known_failures_keep_category_and_never_retry(self):
@@ -97,8 +99,20 @@ class CloudAccessTests(unittest.TestCase):
             self.assertEqual(caught.exception.category, "invalid_response")
             self.assertEqual(str(caught.exception), "invalid_response")
             self.assertIsNone(caught.exception.__cause__)
+            self.assertEqual(caught.exception.diagnostic["detail"], expected)
         with self.assertRaises(ValueError):
             InvalidResponse("private provider prose")
+
+    def test_diagnostic_sanitizer_strips_private_and_unbounded_values(self):
+        diagnostic = sanitize_diagnostic({"operation": "inference", "http_status": True,
+            "service_code": "private-token" * 1000, "request_id": "private-path",
+            "exception_type": "private exception prose", "response_shape": "non_json",
+            "request_state": "unknown", "detail": "private digits", "body": "private pixels",
+            "message": "private token", "url": "https://private.invalid"})
+        self.assertEqual(diagnostic, {"operation": "inference", "service_code": "unrecognized",
+            "exception_type": "other", "response_shape": "non_json", "request_state": "unknown"})
+        self.assertEqual(sanitize_diagnostic(None), {})
+        self.assertEqual(str(CloudUnavailable("network", diagnostic=diagnostic)), "network")
 
 
 class SubscriptionTransportTests(unittest.TestCase):
@@ -256,6 +270,49 @@ class SubscriptionTransportTests(unittest.TestCase):
                 with self.assertRaises(InvalidResponse) as caught:
                     transport.recognize(self.request())
                 self.assertEqual(caught.exception.detail, expected)
+
+    @patch("flex_photo.subscription_auth.access_token", return_value="app-owned-token")
+    def test_http_failure_diagnostics_are_actionable_without_provider_prose(self, _):
+        request_id = "req_" + "a" * 32
+        cases = (
+            (429, b'{"error":{"code":"rate_limit_exceeded","message":"private"}}', "unavailable", "error_object", "rate_limit_exceeded"),
+            (429, b'{"error":{"code":"subscription_sharing_usage_limit_exceeded"}}', "quota", "error_object", "subscription_sharing_usage_limit_exceeded"),
+            (503, b'{"detail":"private service prose"}', "unknown_outcome", "detail_only", None),
+            (400, b'{"error":{"code":"private token","message":"private"}}', "unavailable", "error_object", "unrecognized"),
+            (400, b'private malformed body', "unavailable", "non_json", None),
+            (400, b'[]', "unavailable", "non_object", None),
+        )
+        for status, body, category, shape, code in cases:
+            with self.subTest(status=status, shape=shape, code=code):
+                transport, opener = self.transport(b"")
+                transport._catalog_checked = True
+                opener.open.side_effect = HTTPError("https://api.openai.com/v1/responses", status,
+                    "private reason", {"x-request-id": request_id}, io.BytesIO(body))
+                with self.assertRaises(CloudUnavailable) as caught:
+                    CloudClient(transport).recognize(self.request())
+                diagnostic = caught.exception.diagnostic
+                self.assertEqual(caught.exception.category, category)
+                self.assertEqual(diagnostic["operation"], "inference")
+                self.assertEqual(diagnostic["http_status"], status)
+                self.assertEqual(diagnostic["response_shape"], shape)
+                self.assertEqual(diagnostic.get("service_code"), code)
+                self.assertEqual(diagnostic["request_id"], request_id)
+                self.assertNotIn("private", json.dumps(diagnostic))
+
+    @patch("flex_photo.subscription_auth.access_token", return_value="app-owned-token")
+    def test_stream_failure_retains_safe_service_diagnostic(self, _):
+        transport, opener = self.transport(b"")
+        transport._catalog_checked = True
+        stream = io.BytesIO(self.event("response.failed", error={
+            "code": "subscription_sharing_usage_unavailable", "message": "private"}))
+        stream.status = 200
+        stream.headers = {"x-request-id": "invalid private id"}
+        opener.open.side_effect = [stream]
+        with self.assertRaises(KnownRequestRejected) as caught:
+            transport.recognize(self.request())
+        self.assertEqual(caught.exception.diagnostic, {"operation": "inference", "http_status": 200,
+            "service_code": "subscription_sharing_usage_unavailable", "response_shape": "error_object",
+            "request_state": "rejected"})
 
 
 if __name__ == "__main__":

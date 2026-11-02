@@ -1,6 +1,7 @@
 """App-owned OAuth checks; generated keys and loopback callbacks, no service calls."""
 
 import json
+import io
 import os
 import socket
 from pathlib import Path
@@ -8,7 +9,8 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import urlopen
 
@@ -280,6 +282,25 @@ class SubscriptionAuthTests(unittest.TestCase):
     def test_arbitrary_auth_endpoint_rejected_before_network(self):
         with self.assertRaises(CloudUnavailable):
             auth.http_json("https://other.invalid", {"refresh_token": "private"})
+
+    def test_refresh_http_failure_keeps_only_safe_diagnostics_and_terminal_policy(self):
+        body = io.BytesIO(b'{"error":"invalid_grant","error_description":"private credential text"}')
+        error = HTTPError(auth.TOKEN, 400, "private reason", {"x-request-id": "req_" + "b" * 32}, body)
+        with patch.object(auth, "build_opener") as opener:
+            opener.return_value.open.side_effect = error
+            with self.assertRaises(auth.AuthenticationRejected) as caught:
+                auth.http_json(auth.TOKEN, {"grant_type": "refresh_token", "refresh_token": "private"})
+        self.assertTrue(caught.exception.terminal)
+        self.assertEqual(caught.exception.diagnostic, {"operation": "token_refresh", "http_status": 400,
+            "service_code": "invalid_grant", "response_shape": "json_object", "request_id": "req_" + "b" * 32})
+        self.assertNotIn("private", json.dumps(caught.exception.diagnostic))
+
+    def test_signature_failure_diagnostic_has_safe_exception_type_only(self):
+        with self.assertRaises(CloudUnavailable) as caught:
+            auth.validate_id_token(self.token().rsplit(".", 1)[0] + ".AAAA", "oaiapp_test",
+                                   fetch=self.fetch_keys)
+        self.assertEqual(caught.exception.diagnostic, {"operation": "token_validation",
+                         "exception_type": "InvalidSignatureError"})
 
 
 if __name__ == "__main__":

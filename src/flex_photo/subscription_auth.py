@@ -18,7 +18,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 import uuid
 import webbrowser
 
-from .cloud_access import CloudUnavailable
+from .cloud_access import CloudUnavailable, _response_diagnostic, sanitize_diagnostic
 
 
 ISSUER = "https://auth.openai.com"
@@ -33,9 +33,9 @@ APP_NAME = "Amazon Flex Photo Organizer"
 class AuthenticationRejected(CloudUnavailable):
     """Only documented terminal refresh failures invalidate a renewable session."""
 
-    def __init__(self, *, terminal=False):
+    def __init__(self, *, terminal=False, diagnostic=None):
         self.terminal = terminal
-        super().__init__("authentication")
+        super().__init__("authentication", diagnostic=diagnostic)
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -46,9 +46,12 @@ class _NoRedirect(HTTPRedirectHandler):
 def http_json(url, fields=None):
     """Fixed official auth endpoints only, bounded reads, no credential redirects."""
     if url not in (TOKEN, JWKS):
-        raise CloudUnavailable("authentication")
+        raise CloudUnavailable("authentication", diagnostic={"operation": "credentials"})
+    operation = ("token_validation" if url == JWKS else "token_refresh"
+                 if fields is not None and fields.get("grant_type") == "refresh_token" else "credentials")
     request = Request(url, data=None if fields is None else urlencode(fields).encode(),
                       headers={"Accept": "application/json"})
+    raw = b""
     try:
         with build_opener(_NoRedirect).open(request, timeout=30) as response:
             raw = response.read(1_048_577)
@@ -60,7 +63,8 @@ def http_json(url, fields=None):
         return result
     except HTTPError as error:
         try:
-            body = json.loads(error.read(65536))
+            raw = error.read(65537)
+            body = json.loads(raw[:65536])
             code = body.get("error")
             if isinstance(code, dict):
                 code = code.get("code")
@@ -71,11 +75,15 @@ def http_json(url, fields=None):
         terminal = fields is not None and fields.get("grant_type") == "refresh_token" and code in (
             "invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_expired",
             "refresh_token_invalidated", "refresh_token_reused")
-        raise AuthenticationRejected(terminal=terminal) from None
-    except (URLError, TimeoutError, OSError):
-        raise CloudUnavailable("network") from None
-    except (ValueError, UnicodeError):
-        raise CloudUnavailable("authentication") from None
+        diagnostic = _response_diagnostic(raw, operation=operation, http_status=error.code,
+                                           request_id=error.headers.get("x-request-id") if error.headers else None)
+        raise AuthenticationRejected(terminal=terminal, diagnostic=diagnostic) from None
+    except (URLError, TimeoutError, OSError) as error:
+        raise CloudUnavailable("network", diagnostic={"operation": operation,
+                               "exception_type": type(error).__name__}) from None
+    except (ValueError, UnicodeError) as error:
+        raise CloudUnavailable("authentication", diagnostic={**_response_diagnostic(raw, operation=operation),
+                               "exception_type": type(error).__name__}) from None
 
 
 def _dpapi(raw, *, decrypt=False):
@@ -98,7 +106,7 @@ def _dpapi(raw, *, decrypt=False):
     kernel32.LocalFree.argtypes = [ctypes.c_void_p]
     kernel32.LocalFree.restype = ctypes.c_void_p
     if not function(ctypes.byref(source), None, None, None, None, 1, ctypes.byref(target)):
-        raise CloudUnavailable("authentication")
+        raise CloudUnavailable("authentication", diagnostic={"operation": "credentials"})
     try:
         return ctypes.string_at(target.data, target.size)
     finally:
@@ -109,9 +117,9 @@ def _ordinary(path, *, directory=False):
     info = path.lstat()
     if (stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400
             or not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))):
-        raise CloudUnavailable("authentication")
+        raise CloudUnavailable("authentication", diagnostic={"operation": "credentials"})
     if os.name != "nt" and (info.st_uid != os.getuid() or info.st_mode & 0o077):
-        raise CloudUnavailable("authentication")
+        raise CloudUnavailable("authentication", diagnostic={"operation": "credentials"})
 
 
 class CredentialStore:
@@ -145,8 +153,9 @@ class CredentialStore:
                 else:
                     import fcntl
                     fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                raise CloudUnavailable("authentication") from None
+            except OSError as error:
+                raise CloudUnavailable("authentication", diagnostic={"operation": "credentials",
+                                       "exception_type": type(error).__name__}) from None
             try:
                 if not stream.read(1):
                     stream.write(b"0")
@@ -171,8 +180,9 @@ class CredentialStore:
             if not isinstance(value, dict):
                 raise ValueError("Invalid credential record")
             return value
-        except (OSError, ValueError, UnicodeError):
-            raise CloudUnavailable("authentication") from None
+        except (OSError, ValueError, UnicodeError) as error:
+            raise CloudUnavailable("authentication", diagnostic={"operation": "credentials",
+                                   "exception_type": type(error).__name__}) from None
 
     def save(self, record):
         raw = json.dumps(record, allow_nan=False).encode()
@@ -220,14 +230,15 @@ def validate_id_token(token, client_id, *, nonce=None, subject=None, fetch=http_
                 or subject is not None and claims["sub"] != subject):
             raise ValueError("Identity mismatch")
         return claims
-    except (jwt.PyJWTError, ValueError, TypeError, KeyError):
-        raise CloudUnavailable("authentication") from None
+    except (jwt.PyJWTError, ValueError, TypeError, KeyError) as error:
+        raise CloudUnavailable("authentication", diagnostic={"operation": "token_validation",
+                               "exception_type": type(error).__name__}) from None
 
 
 def _token_record(result, previous, client_id, *, nonce=None, fetch=http_json):
     if (not isinstance(result, dict) or not isinstance(result.get("scope", ""), str)
             or not isinstance(result.get("token_type", ""), str)):
-        raise CloudUnavailable("authentication")
+        raise CloudUnavailable("authentication", diagnostic={"operation": "token_validation"})
     claims = validate_id_token(result.get("id_token", ""), client_id, nonce=nonce,
                                subject=previous.get("subject"), fetch=fetch)
     scopes = result.get("scope", " ".join(previous.get("scopes", []))).split()
@@ -235,7 +246,7 @@ def _token_record(result, previous, client_id, *, nonce=None, fetch=http_json):
             or not all(isinstance(result.get(name), str) and result[name]
                        for name in ("access_token", "refresh_token"))
             or type(result.get("expires_in")) is not int or result["expires_in"] <= 0):
-        raise CloudUnavailable("authentication")
+        raise CloudUnavailable("authentication", diagnostic={"operation": "token_validation"})
     record = {"client_id": client_id, "ext_agent_host_id": previous["ext_agent_host_id"],
             "subject": claims["sub"], "email": claims.get("email"), "scopes": scopes,
             "access_token": result["access_token"], "refresh_token": result["refresh_token"],
@@ -252,10 +263,10 @@ def access_token(store, *, fetch=http_json):
         record = store.load()
         if ("chatgpt.tokens.use.direct" not in record.get("scopes", [])
                 or not record.get("client_id") or not record.get("access_token")):
-            raise CloudUnavailable("authentication")
+            raise CloudUnavailable("authentication", diagnostic={"operation": "credentials"})
         expiry = record.get("expires_at", 0)
         if type(expiry) not in (int, float) or not math.isfinite(expiry):
-            raise CloudUnavailable("authentication")
+            raise CloudUnavailable("authentication", diagnostic={"operation": "credentials"})
         if expiry > time.time() + 60:
             return record["access_token"]
         try:
@@ -263,14 +274,18 @@ def access_token(store, *, fetch=http_json):
                                    "refresh_token": record.get("refresh_token", ""),
                                    "resource": RESOURCE})
         except AuthenticationRejected as error:
+            error.diagnostic = sanitize_diagnostic({"operation": "token_refresh", **error.diagnostic})
             if error.terminal:
                 store.save({key: value for key, value in record.items()
                             if key not in ("access_token", "refresh_token", "id_token", "expires_at")})
             raise
+        except CloudUnavailable as error:
+            error.diagnostic = sanitize_diagnostic({"operation": "token_refresh", **error.diagnostic})
+            raise
         updated = _token_record(result, record, record["client_id"], fetch=fetch)
         store.save(updated)
         if "chatgpt.tokens.use.direct" not in updated["scopes"]:
-            raise CloudUnavailable("authentication")
+            raise CloudUnavailable("authentication", diagnostic={"operation": "token_refresh"})
         return updated["access_token"]
 
 

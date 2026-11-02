@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from flex_photo.cloud_access import CloudUnavailable
+from flex_photo.cloud_access import CloudUnavailable, KnownRequestRejected
 from flex_photo.gpt_flow import GptFallback
 from flex_photo.interpretation import CropEvidence, FieldObservation, InterpretationAssets, PhotoInterpretation
 from tests.unit.test_fallback import candidate, responses
@@ -43,6 +43,93 @@ class GptResumeTests(unittest.TestCase):
     def flow(self, client, **kwargs):
         return GptFallback(self.output, {"recipe_version": 4}, ["photo.heic"],
                            self.assets, client, **kwargs)
+
+    def test_rejected_request_retains_safe_service_diagnostic_and_completed_view_on_resume(self):
+        diagnostic = {'operation': 'inference', 'http_status': 429,
+                      'service_code': 'rate_limit_exceeded', 'response_shape': 'error_object',
+                      'request_id': 'req_' + 'a' * 32, 'message': 'private bearer secret'}
+        first = Mock()
+        first.recognize.side_effect = [responses(self.case)[0],
+                                      KnownRequestRejected('unavailable', diagnostic=diagnostic)]
+        initial = self.flow(first)
+        _, pending, reason = initial.recover(self.path, 'photo.heic', self.digest, self.photo)
+        self.assertTrue(pending)
+        self.assertEqual(reason, 'unavailable')
+        issue, action = initial.failure_description(reason)
+        self.assertIn('http_status=429', issue)
+        self.assertIn('service_code=rate_limit_exceeded', issue)
+        self.assertIn('request_state=rejected', issue)
+        self.assertIn('not confirmed subscription exhaustion', action)
+        state = initial.journal.results['photo.heic']['result']
+        self.assertNotIn('message', state['failure'])
+        self.assertEqual(state['failure']['request_state'], 'rejected')
+        rejected = next(r for r in state['requests'].values() if r['status'] == 'rejected')
+        self.assertEqual(rejected['diagnostic'], state['failure'])
+        self.assertNotIn('private bearer secret', str(state))
+        second = Mock()
+        second.recognize.return_value = responses(self.case)[1]
+        _, pending, _ = self.flow(second, resume=True).recover(
+            self.path, 'photo.heic', self.digest, self.photo)
+        self.assertFalse(pending)
+        second.recognize.assert_called_once()
+
+    def test_preflight_failure_is_durable_without_dispatch_and_unknown_stays_no_repeat(self):
+        first = Mock()
+        first.check_available.side_effect = CloudUnavailable('network', diagnostic={
+            'operation': 'token_refresh', 'exception_type': 'TimeoutError'})
+        initial = self.flow(first)
+        _, pending, reason = initial.recover(self.path, 'photo.heic', self.digest, self.photo)
+        self.assertTrue(pending)
+        first.recognize.assert_not_called()
+        state = initial.journal.results['photo.heic']['result']
+        self.assertEqual(state['failure'], {'operation': 'token_refresh',
+                         'exception_type': 'TimeoutError', 'request_state': 'not_sent'})
+        self.assertEqual(state['requests'], {})
+        uncertain = Mock()
+        uncertain.recognize.side_effect = CloudUnavailable('unknown_outcome', diagnostic={
+            'operation': 'inference', 'exception_type': 'TimeoutError'})
+        flow = self.flow(uncertain, resume=True)
+        flow.recover(self.path, 'photo.heic', self.digest, self.photo)
+        never = Mock()
+        resumed = self.flow(never, resume=True)
+        _, pending, reason = resumed.recover(self.path, 'photo.heic', self.digest, self.photo)
+        issue, action = resumed.failure_description(reason)
+        self.assertIn('operation=inference', issue)
+        self.assertIn('exception_type=TimeoutError', issue)
+        self.assertIn('request_state=unknown', issue)
+        self.assertIn('do not repeat', action)
+        never.recognize.assert_not_called()
+
+    def test_local_crop_failure_does_not_inherit_another_photos_service_diagnostic(self):
+        other = self.root / 'other.heic'
+        third = self.root / 'third.heic'
+        other.write_bytes(b'authored other source')
+        third.write_bytes(b'authored third source')
+        first = Mock()
+        first.recognize.side_effect = KnownRequestRejected('unavailable', diagnostic={
+            'operation': 'inference', 'http_status': 429, 'service_code': 'rate_limit_exceeded',
+            'request_id': 'req_' + 'c' * 32})
+        flow = GptFallback(self.output, {'recipe_version': 4},
+                           ['photo.heic', 'other.heic', 'third.heic'], self.assets, first)
+        flow.recover(self.path, 'photo.heic', self.digest, self.photo)
+        original_diagnostic = flow.last_diagnostic.copy()
+        self.worker.side_effect = None
+        self.worker.return_value = {'error': 'native worker failed'}
+        _, pending, reason = flow.recover(other, 'other.heic', hashlib.sha256(other.read_bytes()).hexdigest(),
+                                          replace(self.photo, path=other))
+        self.assertTrue(pending)
+        self.assertEqual(reason, 'local_crop_failure')
+        issue, action = flow.failure_description(reason)
+        self.assertNotIn('http_status', issue)
+        self.assertNotIn('request_id', action)
+        self.assertIn('no image sent', action)
+        self.worker.return_value = {'fallback_candidates': [copy.deepcopy(self.case)]}
+        _, pending, reason = flow.recover(third, 'third.heic', hashlib.sha256(third.read_bytes()).hexdigest(),
+                                          replace(self.photo, path=third))
+        self.assertTrue(pending)
+        self.assertEqual(reason, 'unavailable')
+        self.assertEqual(flow.last_diagnostic, original_diagnostic)
+        first.recognize.assert_called_once()
 
     def test_completed_first_view_survives_pause_and_is_not_repeated(self):
         first = Mock()
